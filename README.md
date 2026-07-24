@@ -14,7 +14,9 @@ Built from `tracker-app-brief-v1.1`. No framework, no build step: vanilla JS, st
 
 ## Back up your data
 
-Settings → **Export backup** downloads `days.csv`, `workouts.csv`, `measurements.csv`, and the active plan config. Import the same files on a new phone; import is idempotent, so re-importing changes nothing. Do this before replacing your phone; there is no cloud copy.
+Settings → **Export backup** downloads `days.csv`, `workouts.csv`, `measurements.csv`, and the active plan config. Import the same files on a new phone; import is idempotent, so re-importing changes nothing.
+
+There is no cloud copy, and iOS can evict web storage for apps unused for extended periods (home-screen apps are treated more gently, and the app requests persistent storage, but neither is a guarantee — and PWA storage is not in iCloud device backups). So the app watches for you: when the last export is more than four weeks old, an **Export a backup** prompt appears on the This week screen and stays until you export. Save the files to iCloud Drive when Safari asks where to put them.
 
 ## Edit the plan
 
@@ -52,6 +54,9 @@ Covers the brief's acceptance criteria that are computable: trend slope vs indep
 ## Not in this build (web platform limits)
 
 - HealthKit (steps/sleep auto-fill): a web app can't read Apple Health. Steps and sleep are two-tap manual entries; everything in the brief's §9.1 fallback path works.
-- Scheduled notifications: iOS home-screen web apps support push only with a server, which would break local-only data. The NEXT bar covers sequencing while the app is open.
+- Scheduled notifications: iOS home-screen web apps support push only with a server, which would break local-only data. The NEXT bar covers sequencing while the app is open. To replicate the brief's §9.2 schedule, create three repeating iOS Reminders (they cost nothing and match the spec's copy):
+  - 6:30am daily — "Good morning. Weight and sleep."
+  - Your usual session time — "Training today."
+  - 8:30pm daily — "Check-in: one tap."
 
 Everything else in the brief through Phase 3 is implemented.

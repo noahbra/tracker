@@ -274,6 +274,29 @@ function benchSets(weight, reps3) {
   assert(L.weeklyRecommendation(configDoc, good, '2026-08-09', '2026-08-09').startsWith('On track'), 'on-track band');
 }
 
+// ---------- phase suppression x weekly review (§5.7, §7.11) ----------
+
+{
+  // Week 2 (phase 1): Fri intervals suppressed, Wed walk optional, Sun rest.
+  // Planned sessions = Mon lift, Tue walk (phase override), Thu lift, Sat zone2 = 4.
+  // With nothing logged, the suppressed Friday must read 'off', never 'missed'.
+  const s2 = L.weekStats(configDoc, {}, '2026-07-20', '2026-07-26');
+  assertEq(s2.sessionsPlanned, 4, 'week 2: suppressed Friday not counted as planned');
+  assertEq(s2.strip[4].state, 'off', 'week 2: suppressed Friday renders off, not missed');
+  assertEq(s2.strip[6].state, 'off', 'week 2: Sunday rest renders off');
+  assertEq(s2.strip[2].state, 'off', 'week 2: optional Wednesday walk renders off');
+  assertEq(s2.strip[0].state, 'missed', 'week 2: unlogged Monday lift does read missed');
+
+  // Week 5 (no phase): Mon lift, Tue zone2, Thu lift, Fri intervals, Sat zone2 = 5.
+  const s5 = L.weekStats(configDoc, {}, '2026-08-10', '2026-08-16');
+  assertEq(s5.sessionsPlanned, 5, 'week 5: full schedule counts 5 planned');
+  assertEq(s5.strip[4].state, 'missed', 'week 5: unlogged Friday intervals reads missed');
+
+  // The day gauge counts a suppressed day's training as satisfied.
+  const gauge = L.dayGauge(configDoc, {}, '2026-07-24'); // Friday week 2, suppressed
+  assert(gauge.find((g) => g.id === 'training').done, 'gauge: suppressed day training auto-satisfied');
+}
+
 // ---------- week-three protection (§8.4) ----------
 
 {

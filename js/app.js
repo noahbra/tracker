@@ -220,9 +220,12 @@ function renderToday() {
   let html = '';
   if (DEMO) html += `<div class="demo-banner">Demo data — nothing is saved</div>`;
 
-  // header
+  // header — Settings is a small header control, not a third tab (§4)
   html += `<header class="header">
-    <h1>${esc(dateHead)}</h1>
+    <div class="header-row">
+      <h1>${esc(dateHead)}</h1>
+      <button class="settings-link" data-act="sheet" data-sheet="settings">Settings</button>
+    </div>
     <div class="sub num">Day ${day} · Week ${week} · ${toGo != null ? toGo.toFixed(1) : EMDASH} lb to go</div>
     <div class="gauge" role="img" aria-label="${gauge.filter((g) => g.done).length} of 6 logged">
       ${gauge.map((g) => `<div class="seg${g.done ? ' done' : ''}" title="${g.label}"></div>`).join('')}
@@ -530,7 +533,13 @@ function renderWeek() {
   const sympDays = L.symptomDays(state.records, t);
   const dayLetters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
-  let html = `<section class="card"><span class="label">Sessions</span>
+  const weekOf = L.parseDate(L.weekStart(t)).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+  let html = `<header class="header"><div class="header-row">
+    <h1>Week of ${esc(weekOf)}</h1>
+    <button class="settings-link" data-act="sheet" data-sheet="settings">Settings</button>
+  </div></header>`;
+
+  html += `<section class="card"><span class="label">Sessions</span>
     <div class="week-strip">
       ${stats.strip.map((d, i) => `<div class="day"><div class="cell ${d.state === 'done' ? 'done' : d.state === 'off' || d.state === 'blank' ? 'off' : ''}"></div><span class="label">${dayLetters[i]}</span></div>`).join('')}
     </div></section>`;
@@ -554,6 +563,17 @@ function renderWeek() {
     <div class="recommendation">${esc(rec7)}</div>
     ${sympDays.length ? `<div class="rec-symptom">Muscle symptoms logged ${sympDays.length} day${sympDays.length > 1 ? 's' : ''} this week. Worth mentioning at your next appointment.</div>` : ''}
   </section>`;
+
+  // Backup staleness (§6.4): this storage is local-only and iOS can evict it.
+  // A manual backup that depends on remembering is not backup.
+  const hasData = Object.values(state.records).some((r) => r.weight != null || r.workout || Object.keys(r.meals || {}).length);
+  const last = state.meta.lastExport;
+  if (hasData && (!last || L.daysBetween(last, t) > 28)) {
+    html += `<button class="prompt" data-act="export">
+      <span class="title">Export a backup</span>
+      <span class="sub">${last ? `Last export ${L.daysBetween(last, t)} days ago` : 'Never exported'} · this data has no cloud copy.</span>
+    </button>`;
+  }
 
   document.getElementById('view-week').innerHTML = html;
 }
@@ -740,6 +760,9 @@ function doExport() {
   download(`workouts-${stamp}.csv`, L.workoutsToCsv(state.records));
   download(`measurements-${stamp}.csv`, L.measurementsToCsv(state.measurements));
   download(`plan-${stamp}.json`, JSON.stringify(state.configDoc, null, 2), 'application/json');
+  state.meta.lastExport = stamp;
+  save();
+  render();
 }
 
 async function doImport(files) {
@@ -1002,7 +1025,6 @@ async function boot() {
   });
   document.getElementById('tab-today').addEventListener('click', () => { state.tab = 'today'; render(); });
   document.getElementById('tab-week').addEventListener('click', () => { state.tab = 'week'; render(); });
-  document.getElementById('open-settings').addEventListener('click', () => { state.sheet = { kind: 'settings' }; renderOverlay(); });
 
   // Enter key submits the primary action of an open sheet.
   document.addEventListener('keydown', (e) => {
