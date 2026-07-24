@@ -51,7 +51,9 @@ const state = {
   records: {},
   measurements: [],
   meta: { schemaVersion: L.SCHEMA_VERSION },
-  tab: new URLSearchParams(location.search).get('tab') === 'week' ? 'week' : 'today',
+  tab: ['week', 'ref'].includes(new URLSearchParams(location.search).get('tab'))
+    ? new URLSearchParams(location.search).get('tab')
+    : 'today',
   sheet: null,          // { kind, ... }
   logger: null,         // { sessionId }
   editingSet: null,     // 'exId:idx' currently in input mode
@@ -585,6 +587,140 @@ function renderWeek() {
   document.getElementById('view-week').innerHTML = html;
 }
 
+// ---------- Reference tab ----------
+// Read-only. Every value here comes from config/plan.json or logged history;
+// nothing is hard-coded, so a plan revision updates this page automatically.
+
+const DAY_ORDER = ['1', '2', '3', '4', '5', '6', '0'];
+const DAY_FULL = { 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday', 0: 'Sunday' };
+const MEASURE_LABELS = { waist: 'Waist, in', restingHr: 'Resting HR, bpm', bloodPressure: 'Blood pressure', grip: 'Grip, lb' };
+
+function describeSched(entry, config) {
+  if (entry.type === 'lift') return 'Lift — A/B alternating';
+  if (entry.type === 'rest') return 'Rest';
+  if (entry.type === 'walk') return `Walk · ${entry.minutes} min${entry.optional ? ' · optional' : ''}`;
+  if (entry.mode === 'intervals') return `Intervals · ${entry.minutes} min · ${entry.prescription || ''}`;
+  const [lo, hi] = config.targets.zone2HrRange;
+  return `Zone 2 · ${entry.minutes} min · HR ${lo}–${hi}`;
+}
+
+function fmtRefDate(iso) {
+  return L.parseDate(iso.slice(0, 10)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function renderReference() {
+  const t = todayStr();
+  const config = activeConfig();
+  const tg = config.targets;
+
+  let html = `<header class="header"><div class="header-row">
+    <h1>Reference</h1>
+    <button class="settings-link" data-act="sheet" data-sheet="settings">Settings</button>
+  </div></header>`;
+
+  // ---- plan summary ----
+  html += `<section class="card"><span class="label">Plan</span>
+    <table class="ref-table">
+      <tr><td>Version</td><td class="num">${config.planVersion} · ${esc(config.label || '')}</td></tr>
+      <tr><td>Program start</td><td class="num">${fmtRefDate(L.programStart(state.configDoc))}</td></tr>
+      <tr><td>Weight</td><td class="num">${tg.weightStart} → ${tg.weightGoal} lb</td></tr>
+      <tr><td>Protein floor</td><td class="num">${tg.proteinFloor} g / day</td></tr>
+      <tr><td>Steps</td><td class="num">${fmtInt(tg.stepTarget)} / day (ramped in early weeks)</td></tr>
+      <tr><td>Sleep</td><td class="num">${fmtSleep(tg.sleepTargetMinutes)}</td></tr>
+    </table></section>`;
+
+  // ---- dietary protocol ----
+  let mealsHtml = '';
+  let grandCal = 0, grandPro = 0;
+  for (const meal of config.meals) {
+    const total = L.mealTotal(meal);
+    grandCal += total.cal; grandPro += total.protein;
+    mealsHtml += `<table class="ref-table meal-detail">
+      <tr class="ref-head"><th>${esc(meal.name)}</th><th class="num r">${total.cal} cal · ${total.protein} g</th></tr>
+      ${meal.components.map((c) => `<tr><td>${esc(c.name)}</td><td class="num r">${c.cal} cal · ${c.protein} g</td></tr>`).join('')}
+    </table>`;
+  }
+  const dtRows = Object.entries(config.dayTypes)
+    .map(([k, v]) => `<tr><td>${k[0].toUpperCase() + k.slice(1)} days</td><td class="num r">${fmtInt(v.calorieTarget)} cal</td></tr>`).join('');
+  const modRows = (config.mealModifiers || []).map((m) =>
+    `<tr><td>${esc(m.label)}${m.optional ? ' (optional, by choice)' : ' (automatic)'}</td><td class="num r">${m.cal > 0 ? '+' : ''}${m.cal} cal</td></tr>`).join('');
+  html += `<section class="card"><span class="label">Dietary protocol</span>
+    <table class="ref-table">${dtRows}</table>
+    ${mealsHtml}
+    <table class="ref-table"><tr class="ref-head"><th>Base plan total</th><th class="num r">${fmtInt(grandCal)} cal · ${grandPro} g</th></tr>${modRows}</table>
+  </section>`;
+
+  // ---- weekly schedule + phases ----
+  const schedRows = DAY_ORDER.map((d) =>
+    `<tr><td>${DAY_FULL[d]}</td><td>${esc(describeSched(config.schedule[d] || { type: 'rest' }, config))}</td></tr>`).join('');
+  let phasesHtml = '';
+  for (const p of config.phases || []) {
+    const parts = [];
+    if (p.stepTarget) parts.push(`steps ${fmtInt(p.stepTarget)}`);
+    for (const [d, o] of Object.entries(p.scheduleOverrides || {})) {
+      parts.push(`${DAY_FULL[d]} → ${o.type === 'rest' ? 'rest' : describeSched(o, config).toLowerCase()}`);
+    }
+    phasesHtml += `<tr><td>Weeks ${p.weeks.join('–')}</td><td>${esc(parts.join(' · '))}${p.note ? `<div class="ref-note">${esc(p.note)}</div>` : ''}</td></tr>`;
+  }
+  html += `<section class="card"><span class="label">Weekly schedule</span>
+    <table class="ref-table">${schedRows}</table>
+    ${phasesHtml ? `<span class="label" style="display:block;margin-top:14px">Ramp-in phases</span><table class="ref-table">${phasesHtml}</table>` : ''}
+    ${config.zone2Guidance ? `<div class="ref-note" style="margin-top:10px">${esc(config.zone2Guidance)}</div>` : ''}
+  </section>`;
+
+  // ---- lift sessions ----
+  for (const [, session] of Object.entries(config.sessions)) {
+    html += `<section class="card"><span class="label">${esc(session.name)}</span>
+      <table class="ref-table">
+        ${session.exercises.map((e) => `<tr><td>${esc(e.name)}${e.pair ? '<div class="ref-note">paired · 90 s rests</div>' : ''}</td>
+          <td class="num r">${e.type === 'carry' ? `${e.sets} × 40 yd` : `${e.sets} × ${e.reps}`}<div class="ref-note">+${e.increment} ${esc(e.unit)}</div></td></tr>`).join('')}
+      </table></section>`;
+  }
+  if (config.restGuidance) {
+    html += `<section class="card"><span class="label">Rest periods</span><div class="ref-note">${esc(config.restGuidance)}</div></section>`;
+  }
+
+  // ---- progression rules, in plain English from the config parameters ----
+  const p = config.progression;
+  html += `<section class="card"><span class="label">Load progression</span>
+    <table class="ref-table">
+      <tr><td>All prescribed reps completed</td><td>Add the exercise's increment next session</td></tr>
+      <tr><td>Any set missed</td><td>Repeat the same load</td></tr>
+      <tr><td>${p.consecutiveMissesBeforeDeload} consecutive misses at your last successful load</td><td>Deload to ${Math.round(p.deloadFactor * 100)}% and rebuild</td></tr>
+      <tr><td>More than ${p.layoffDays} days off an exercise</td><td>Resume at ${Math.round(p.layoffFactor * 100)}% of last success</td></tr>
+      <tr><td>Misses above your last successful load</td><td>Don't count toward deload</td></tr>
+      <tr><td>All suggestions</td><td>Round to nearest ${p.roundToNearest} lb; the app suggests, never enforces</td></tr>
+    </table></section>`;
+
+  // ---- for your clinician ----
+  const avg = L.rollingAverage(state.records, t);
+  const slope = L.trendSlope(state.records, t);
+  const symptomRows = Object.values(state.records)
+    .filter((r) => r.checkin && r.checkin.symptom && r.checkin.symptom !== 'None')
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const measureRows = [...state.measurements].sort((a, b) => b.takenAt.localeCompare(a.takenAt));
+
+  html += `<section class="card"><span class="label">For your clinician</span>
+    <table class="ref-table">
+      <tr><td>Current weight</td><td class="num r">${avg != null ? `${avg.toFixed(1)} lb (7-day avg)` : EMDASH}</td></tr>
+      <tr><td>Trend</td><td class="num r">${slope != null ? `${fmtSlope(slope)} lb / week` : EMDASH}</td></tr>
+    </table>
+    <span class="label" style="display:block;margin-top:14px">Muscle symptom log</span>
+    ${symptomRows.length
+      ? `<table class="ref-table">${symptomRows.map((r) => `<tr><td class="num">${fmtRefDate(r.date)}</td>
+          <td${r.checkin.symptom !== 'Mild soreness' ? ' class="ref-alert"' : ''}>${esc(r.checkin.symptom)}${r.checkin.interfered ? `<div class="ref-note">Interfered with training: ${esc(r.checkin.interfered)}</div>` : ''}</td></tr>`).join('')}</table>`
+      : `<div class="ref-note">No symptoms logged.</div>`}
+    <span class="label" style="display:block;margin-top:14px">Measurements</span>
+    ${measureRows.length
+      ? `<table class="ref-table">${measureRows.map((m) => `<tr><td class="num">${fmtRefDate(m.takenAt)}</td>
+          <td>${MEASURE_LABELS[m.kind] || esc(m.kind)}</td><td class="num r">${m.value}${m.value2 != null ? ` / ${m.value2}` : ''}</td></tr>`).join('')}</table>`
+      : `<div class="ref-note">No measurements logged.</div>`}
+    <div class="disclaimer" style="margin-top:14px">A personal log, not a medical device. Recorded by the patient; single readings are noise, trends are signal.</div>
+  </section>`;
+
+  document.getElementById('view-ref').innerHTML = html;
+}
+
 // ---------- sheets ----------
 
 function sheetHtml(sheet) {
@@ -1002,11 +1138,13 @@ function saveSetFromRow(key, exId) {
 // ---------- render root ----------
 
 function render() {
-  if (state.tab === 'today') renderToday(); else renderWeek();
-  document.getElementById('view-today').hidden = state.tab !== 'today';
-  document.getElementById('view-week').hidden = state.tab !== 'week';
-  document.getElementById('tab-today').setAttribute('aria-selected', state.tab === 'today');
-  document.getElementById('tab-week').setAttribute('aria-selected', state.tab === 'week');
+  if (state.tab === 'today') renderToday();
+  else if (state.tab === 'week') renderWeek();
+  else renderReference();
+  for (const tab of ['today', 'week', 'ref']) {
+    document.getElementById(`view-${tab}`).hidden = state.tab !== tab;
+    document.getElementById(`tab-${tab}`).setAttribute('aria-selected', state.tab === tab);
+  }
   renderOverlay();
 }
 
@@ -1034,6 +1172,7 @@ async function boot() {
   });
   document.getElementById('tab-today').addEventListener('click', () => { state.tab = 'today'; render(); });
   document.getElementById('tab-week').addEventListener('click', () => { state.tab = 'week'; render(); });
+  document.getElementById('tab-ref').addEventListener('click', () => { state.tab = 'ref'; render(); });
 
   // Enter key submits the primary action of an open sheet.
   document.addEventListener('keydown', (e) => {
