@@ -247,7 +247,8 @@ function renderToday() {
     focusLines.push(`${EMDASH} ${esc(nm)}${offered.pushedFrom ? ` <span class="num">(pushed from ${offered.pushedFrom})</span>` : ''}`);
   }
   focusLines.push(`${EMDASH} Eat <span class="num">${fmtInt(plan.calorieTarget)}</span> cal · <span class="num">${plan.proteinFloor}</span> g protein`);
-  if (stepsLeft > 0) focusLines.push(`${EMDASH} Walk <span class="num">${fmtInt(stepsLeft)}</span> more steps`);
+  if (rec.steps == null) focusLines.push(`${EMDASH} Walk <span class="num">${fmtInt(plan.stepTarget)}</span> steps`);
+  else if (stepsLeft > 0) focusLines.push(`${EMDASH} Walk <span class="num">${fmtInt(stepsLeft)}</span> more steps`);
   html += `<section class="card focus" id="sec-focus">
     <span class="label">Today's focus</span>
     ${focusLines.map((l) => `<div class="line">${l}</div>`).join('')}
