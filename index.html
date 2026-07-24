@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tracker</title>
+<meta name="theme-color" content="#E4E7DE">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Tracker">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="fonts/fonts.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app">
+  <nav class="tabs" role="tablist">
+    <button id="tab-today" role="tab" aria-selected="true">Today</button>
+    <button id="tab-week" role="tab" aria-selected="false">This week</button>
+    <button class="settings-btn" id="open-settings">Settings</button>
+  </nav>
+
+  <main id="view-today" role="tabpanel"></main>
+  <main id="view-week" role="tabpanel" hidden></main>
+</div>
+
+<div id="overlay"></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

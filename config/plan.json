@@ -1,0 +1,138 @@
+{
+  "versions": [
+    {
+      "planVersion": 3,
+      "effectiveFrom": "2026-07-13",
+      "label": "Rev 2 + low-bar squat",
+
+      "targets": {
+        "proteinFloor": 180,
+        "stepTarget": 9000,
+        "sleepTargetMinutes": 450,
+        "weightStart": 220,
+        "weightGoal": 195,
+        "waistIntervalDays": 14,
+        "zone2HrRange": [105, 125]
+      },
+
+      "dayTypes": {
+        "lift":   { "calorieTarget": 2430, "mealModifiers": ["preworkoutCarb"] },
+        "cardio": { "calorieTarget": 2320 },
+        "walk":   { "calorieTarget": 2320 },
+        "rest":   { "calorieTarget": 2260, "mealModifiers": ["halfDinnerStarch"] }
+      },
+
+      "meals": [
+        {
+          "id": "breakfast",
+          "name": "Breakfast",
+          "components": [
+            { "name": "¾ c dry oats",             "cal": 225, "protein": 8 },
+            { "name": "1 c unsweetened soy milk",      "cal": 80,  "protein": 7 },
+            { "name": "1 tbsp ground flaxseed",        "cal": 37,  "protein": 2 },
+            { "name": "1 c blueberries",               "cal": 84,  "protein": 1 },
+            { "name": "1 c 0% Greek yogurt",           "cal": 130, "protein": 23 },
+            { "name": "5 walnut halves",               "cal": 65,  "protein": 2 }
+          ]
+        },
+        {
+          "id": "lunch",
+          "name": "Lunch",
+          "components": [
+            { "name": "6 oz chicken breast",           "cal": 281, "protein": 53 },
+            { "name": "¾ c cooked lentils",       "cal": 172, "protein": 13 },
+            { "name": "2 c roasted veg + 1 tbsp olive oil", "cal": 200, "protein": 5 }
+          ]
+        },
+        {
+          "id": "snack",
+          "name": "Snack",
+          "components": [
+            { "name": "1 c 2% cottage cheese",         "cal": 180, "protein": 24 },
+            { "name": "1 banana",                      "cal": 105, "protein": 1 }
+          ]
+        },
+        {
+          "id": "dinner",
+          "name": "Dinner",
+          "components": [
+            { "name": "6 oz salmon",                   "cal": 350, "protein": 37 },
+            { "name": "4 oz potato or ¾ c farro", "cal": 128, "protein": 5 },
+            { "name": "2 c veg + 1 tbsp olive oil",    "cal": 200, "protein": 5 }
+          ]
+        },
+        {
+          "id": "dessert",
+          "name": "Dessert",
+          "components": [
+            { "name": "½ oz 85% dark chocolate",  "cal": 85,  "protein": 1 }
+          ]
+        }
+      ],
+
+      "mealModifiers": [
+        { "id": "preworkoutCarb",   "label": "Pre-training carb (½ c rice or fruit)",
+          "cal": 110, "protein": 2, "optional": true },
+        { "id": "halfDinnerStarch", "label": "Half dinner starch",
+          "cal": -64, "protein": -2, "optional": false, "appliesTo": "dinner" }
+      ],
+
+      "schedule": {
+        "1": { "type": "lift",   "rotation": "AB" },
+        "2": { "type": "cardio", "mode": "zone2",     "minutes": 40 },
+        "3": { "type": "walk",   "minutes": 75, "optional": true },
+        "4": { "type": "lift",   "rotation": "AB" },
+        "5": { "type": "cardio", "mode": "intervals", "minutes": 35,
+               "prescription": "4 × 4 min hard / 3 min easy" },
+        "6": { "type": "cardio", "mode": "zone2",     "minutes": 60 },
+        "0": { "type": "rest" }
+      },
+
+      "zone2Guidance": "Bike, rower, or steep-incline treadmill walk while over 200 lb.",
+
+      "sessions": {
+        "liftA": {
+          "name": "Lift A",
+          "exercises": [
+            { "id": "trapbar",  "name": "Trap bar deadlift",     "sets": 3, "reps": 5,  "increment": 5,  "unit": "lb" },
+            { "id": "bench",    "name": "Barbell bench press",   "sets": 3, "reps": 5,  "increment": 5,  "unit": "lb" },
+            { "id": "csrow",    "name": "Chest-supported row",   "sets": 3, "reps": 8,  "increment": 5,  "unit": "lb", "pair": "3" },
+            { "id": "facepull", "name": "Face pull",             "sets": 2, "reps": 15, "increment": 5,  "unit": "lb", "pair": "3" },
+            { "id": "farmer",   "name": "Farmer's carry, 40 yd", "sets": 3, "reps": 1,  "increment": 10, "unit": "lb ea", "type": "carry" }
+          ]
+        },
+        "liftB": {
+          "name": "Lift B",
+          "exercises": [
+            { "id": "squat",    "name": "Low-bar back squat",       "sets": 3, "reps": 5,  "increment": 5, "unit": "lb" },
+            { "id": "ohp",      "name": "Overhead press",           "sets": 3, "reps": 5,  "increment": 5, "unit": "lb" },
+            { "id": "chinup",   "name": "Chin-up or lat pulldown",  "sets": 3, "reps": 8,  "increment": 5, "unit": "lb", "pair": "3" },
+            { "id": "rdl",      "name": "Romanian deadlift",        "sets": 3, "reps": 8,  "increment": 5, "unit": "lb", "pair": "3" },
+            { "id": "suitcase", "name": "Suitcase carry or plank",  "sets": 3, "reps": 1,  "increment": 10, "unit": "lb ea", "type": "carry" }
+          ]
+        }
+      },
+
+      "restGuidance": "Rest 3 min on the first lift, 2–3 min on the second, 90 s on paired accessories.",
+
+      "progression": {
+        "onAllRepsCompleted": "increment",
+        "onMiss": "repeat",
+        "consecutiveMissesBeforeDeload": 2,
+        "deloadFactor": 0.9,
+        "roundToNearest": 5,
+        "layoffDays": 10,
+        "layoffFactor": 0.9
+      },
+
+      "phases": [
+        { "weeks": [1, 2], "stepTarget": 6500,
+          "scheduleOverrides": { "2": { "type": "walk", "minutes": 30 },
+                                 "5": { "type": "rest", "suppressed": true } },
+          "note": "Loads deliberately light" },
+        { "weeks": [3, 4], "stepTarget": 8000,
+          "scheduleOverrides": { "5": { "type": "rest", "suppressed": true } } }
+      ]
+    }
+  ]
+}
