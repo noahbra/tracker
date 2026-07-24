@@ -219,6 +219,9 @@ function benchSets(weight, reps3) {
   const measurements = [{ id: 'w1', takenAt: `${d}T07:00:00`, kind: 'waist', value: 41, schemaVersion: 1 }];
   const next = L.nextAction(configDoc, records, measurements, d, 21);
   assertEq(next.id, 'done', "everything satisfied -> day's logged");
+  // Overdue backup surfaces only once the day itself is fully logged.
+  assertEq(L.nextAction(configDoc, records, measurements, d, 21, true).id, 'export', 'stale export -> NEXT says export');
+  assertEq(L.nextAction(configDoc, { [d]: rec(d) }, measurements, d, 7, true).id, 'weight', 'daily capture outranks export');
 
   // Morning, nothing logged -> weight first.
   assertEq(L.nextAction(configDoc, { [d]: rec(d) }, measurements, d, 7).id, 'weight', 'morning: weight first');

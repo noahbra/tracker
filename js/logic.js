@@ -412,8 +412,9 @@ export function waistDue(configDoc, measurements, dateStr) {
 
 // ---------- NEXT bar (§7.3) ----------
 
-// `hour` is the local hour 0-23. First unsatisfied wins.
-export function nextAction(configDoc, records, measurements, dateStr, hour) {
+// `hour` is the local hour 0-23. First unsatisfied wins. `exportStale` lets
+// the NEXT bar surface an overdue backup once the day itself is fully logged.
+export function nextAction(configDoc, records, measurements, dateStr, hour, exportStale = false) {
   const rec = records[dateStr] || {};
   const plan = dayPlan(configDoc, dateStr);
   const offered = offeredSession(configDoc, records, dateStr);
@@ -471,6 +472,9 @@ export function nextAction(configDoc, records, measurements, dateStr, hour) {
   }
   if ((rec.steps || 0) < plan.stepTarget) return { id: 'steps', label: 'Log steps' };
   if (!(rec.checkin && rec.checkin.symptom)) return { id: 'checkin', label: 'Evening check-in' };
+
+  // Day fully logged: an overdue backup is the only thing still owed.
+  if (exportStale) return { id: 'export', label: 'Export a backup' };
 
   return { id: 'done', label: "Nothing. Day's logged." };
 }

@@ -207,7 +207,7 @@ function renderToday() {
   const plan = L.dayPlan(state.configDoc, t);
   const offered = L.offeredSession(state.configDoc, state.records, t);
   const gauge = L.dayGauge(state.configDoc, state.records, t);
-  const next = L.nextAction(state.configDoc, state.records, state.measurements, t, nowHour());
+  const next = L.nextAction(state.configDoc, state.records, state.measurements, t, nowHour(), exportStale(t));
   const nut = L.dayNutrition(state.configDoc, rec.date ? rec : { ...rec, date: t });
   const avg = L.rollingAverage(state.records, t);
   const slope = L.trendSlope(state.records, t);
@@ -343,6 +343,13 @@ function lastWeightSub() {
     if (r && r.weight != null) return `Last recorded ${r.weight.toFixed(1)} lb`;
   }
   return 'First weigh-in';
+}
+
+// Backup overdue: data exists and the last export is >4 weeks old or absent.
+function exportStale(t) {
+  const hasData = Object.values(state.records).some((r) => r.weight != null || r.workout || Object.keys(r.meals || {}).length);
+  const last = state.meta.lastExport;
+  return hasData && (!last || L.daysBetween(last, t) > 28);
 }
 
 function weekThreeHtml(t) {
@@ -567,9 +574,8 @@ function renderWeek() {
 
   // Backup staleness (§6.4): this storage is local-only and iOS can evict it.
   // A manual backup that depends on remembering is not backup.
-  const hasData = Object.values(state.records).some((r) => r.weight != null || r.workout || Object.keys(r.meals || {}).length);
-  const last = state.meta.lastExport;
-  if (hasData && (!last || L.daysBetween(last, t) > 28)) {
+  if (exportStale(t)) {
+    const last = state.meta.lastExport;
     html += `<button class="prompt" data-act="export">
       <span class="title">Export a backup</span>
       <span class="sub">${last ? `Last export ${L.daysBetween(last, t)} days ago` : 'Never exported'} · this data has no cloud copy.</span>
@@ -815,6 +821,8 @@ function handleAction(act, el) {
         document.getElementById('sec-meals')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       } else if (id === 'checkin') {
         document.getElementById('sec-checkin')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else if (id === 'export') {
+        doExport();
       }
       break;
     }
