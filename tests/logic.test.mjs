@@ -7,7 +7,14 @@ import { dirname, join } from 'node:path';
 import * as L from '../js/logic.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const configDoc = JSON.parse(readFileSync(join(__dirname, '../config/plan.json'), 'utf8'));
+const liveDoc = JSON.parse(readFileSync(join(__dirname, '../config/plan.json'), 'utf8'));
+// Every hard-coded date below assumes a Monday 2026-07-13 program start. The
+// live effectiveFrom is Noah's actual start date and moves when the program
+// (re)starts, so pin the anchor here and test the live plan content under it.
+const configDoc = {
+  ...liveDoc,
+  versions: liveDoc.versions.map((v, i) => (i === 0 ? { ...v, effectiveFrom: '2026-07-13' } : v)),
+};
 
 let pass = 0, fail = 0;
 function assert(cond, name) {

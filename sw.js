@@ -1,7 +1,7 @@
 // Offline cache. Stale-while-revalidate: serves instantly from cache, then
 // refreshes in the background so an edit to config/plan.json or the app code
 // lands on the next open. Bump VERSION to force a clean sweep.
-const VERSION = 'tracker-v1';
+const VERSION = 'tracker-v2';
 const ASSETS = [
   './',
   './index.html',
