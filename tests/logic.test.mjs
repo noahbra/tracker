@@ -384,5 +384,122 @@ function benchSets(weight, reps3) {
   assertEq(strip(L.mergeMeasurements(measBack, measBack)), strip(measurements), 'measurement import idempotent');
 }
 
+// ---------- seeded start loads ----------
+
+{
+  const V4 = configDoc.versions.find((v) => v.planVersion === 4);
+  assert(V4, 'plan carries a version 4');
+  const b4 = V4.sessions.liftA.exercises.find((e) => e.id === 'bench');
+  const s4 = V4.sessions.liftB.exercises.find((e) => e.id === 'squat');
+
+  // Every exercise must carry a start load — a blank first session is the bug.
+  const missing = [];
+  for (const s of Object.values(V4.sessions)) {
+    for (const e of s.exercises) if (e.startWeight == null) missing.push(e.id);
+  }
+  assertEq(missing, [], 'every v4 exercise has a startWeight');
+
+  const p = L.progression(configDoc, {}, 'bench', b4, '2026-08-20');
+  assertEq(p.suggested, 105, 'no history -> seeded start load');
+  assert(p.cue && p.cue.includes('105'), 'start-load cue names the number');
+  assertEq(L.progression(configDoc, {}, 'squat', s4, '2026-08-20').suggested, 155, 'squat start load 155');
+
+  // History still wins over the seed.
+  const r = { '2026-08-17': workoutDay('2026-08-17', benchSets(145, [5, 5, 5])) };
+  assertEq(L.progression(configDoc, r, 'bench', b4, '2026-08-20').suggested, 150, 'history overrides the seed');
+}
+
+// ---------- set marks: hit / grindy / missed ----------
+
+function markedDay(date, sets, marks) {
+  return rec(date, { workout: { sessionId: 'liftA', sets, marks, completedAt: `${date}T07:30:00` } });
+}
+
+{
+  // Hit -> increment, even though it is also inferable from reps.
+  const hit = { '2026-08-17': markedDay('2026-08-17', benchSets(145, [5, 5, 5]), { bench: 'hit' }) };
+  assertEq(L.progression(configDoc, hit, 'bench', benchCfg, '2026-08-20').suggested, 150, 'hit -> +5');
+
+  // Grindy -> repeat. All reps were completed, so reps alone would have said
+  // "increment"; only the mark carries this.
+  const grindy = { '2026-08-17': markedDay('2026-08-17', benchSets(145, [5, 5, 5]), { bench: 'grindy' }) };
+  const pg = L.progression(configDoc, grindy, 'bench', benchCfg, '2026-08-20');
+  assertEq(pg.suggested, 145, 'grindy -> repeat the same load');
+  assert(pg.cue.toLowerCase().includes('again'), 'grindy cue says run it again');
+
+  // Missed once at the working load -> repeat, no deload yet.
+  const miss1 = {
+    '2026-08-13': markedDay('2026-08-13', benchSets(145, [5, 5, 5]), { bench: 'hit' }),
+    '2026-08-17': markedDay('2026-08-17', benchSets(145, [5, 5, 4]), { bench: 'miss' }),
+  };
+  assertEq(L.progression(configDoc, miss1, 'bench', benchCfg, '2026-08-20').suggested, 145, 'one miss -> repeat');
+
+  // Two consecutive misses -> deload to 0.9 x last success (Noah's rule).
+  const miss2 = {
+    ...miss1,
+    '2026-08-20': markedDay('2026-08-20', benchSets(145, [5, 4, 4]), { bench: 'miss' }),
+  };
+  assertEq(L.progression(configDoc, miss2, 'bench', benchCfg, '2026-08-24').suggested, 130, 'two misses -> deload to round(145*0.9)=130');
+
+  // A grindy session between two misses breaks the streak: grinding it out is
+  // not failing, so it must not accumulate toward a deload.
+  const broken = {
+    '2026-08-10': markedDay('2026-08-10', benchSets(145, [5, 5, 5]), { bench: 'hit' }),
+    '2026-08-13': markedDay('2026-08-13', benchSets(145, [5, 5, 4]), { bench: 'miss' }),
+    '2026-08-17': markedDay('2026-08-17', benchSets(145, [5, 5, 5]), { bench: 'grindy' }),
+    '2026-08-20': markedDay('2026-08-20', benchSets(145, [5, 4, 4]), { bench: 'miss' }),
+  };
+  assertEq(L.progression(configDoc, broken, 'bench', benchCfg, '2026-08-24').suggested, 145,
+    'grindy breaks the miss streak -> repeat, not deload');
+
+  // An explicit mark overrides what the reps imply, in both directions.
+  const repsSayHit = { '2026-08-17': markedDay('2026-08-17', benchSets(145, [5, 5, 5]), { bench: 'miss' }) };
+  assert(L.progression(configDoc, repsSayHit, 'bench', benchCfg, '2026-08-20').suggested !== 150,
+    'explicit miss overrides all-reps-completed');
+  const repsSayMiss = { '2026-08-17': markedDay('2026-08-17', benchSets(145, [5, 5, 2]), { bench: 'hit' }) };
+  assertEq(L.progression(configDoc, repsSayMiss, 'bench', benchCfg, '2026-08-20').suggested, 150,
+    'explicit hit overrides a short set');
+
+  // Unmarked history keeps behaving exactly as before marks existed.
+  const unmarked = { '2026-08-17': workoutDay('2026-08-17', benchSets(145, [5, 5, 5])) };
+  assertEq(L.progression(configDoc, unmarked, 'bench', benchCfg, '2026-08-20').suggested, 150,
+    'unmarked sessions still infer from reps');
+
+  // Marks survive a backup round-trip.
+  const back = L.csvToWorkouts(L.workoutsToCsv(miss2));
+  assertEq(back['2026-08-20'].marks, { bench: 'miss' }, 'marks round-trip through CSV');
+  const noMarks = L.csvToWorkouts(L.workoutsToCsv(unmarked));
+  assertEq(noMarks['2026-08-17'].marks, undefined, 'a workout with no marks gains no marks key');
+}
+
+// ---------- off-plan meals ----------
+
+{
+  const V4 = configDoc.versions.find((v) => v.planVersion === 4);
+  const planned = L.mealTotal(V4.meals.find((m) => m.id === 'lunch'));
+
+  const eaten = { date: '2026-08-17', planVersion: 4, meals: { lunch: 'eaten' }, modifiers: {} };
+  const offplan = { date: '2026-08-17', planVersion: 4, meals: { lunch: 'offplan' }, modifiers: {} };
+  const skipped = { date: '2026-08-17', planVersion: 4, meals: { lunch: 'skipped' }, modifiers: {} };
+
+  assertEq(L.dayNutrition(configDoc, offplan).cal, planned.cal, 'off-plan counts the meal calories');
+  assertEq(L.dayNutrition(configDoc, offplan), L.dayNutrition(configDoc, eaten), 'off-plan counts like eaten for totals');
+  assertEq(L.dayNutrition(configDoc, skipped).cal, 0, 'skipped counts nothing');
+
+  // The whole point: it breaks adherence, which is what drives the weekly
+  // recommendation to say "fix the meals before changing any number".
+  const mealIds = V4.meals.map((m) => m.id);
+  const allOf = (state) => Object.fromEntries(mealIds.map((id) => [id, state]));
+  const day = '2026-08-17'; // Monday
+  const recsEaten = { [day]: rec(day, { planVersion: 4, meals: allOf('eaten') }) };
+  const recsOff = { [day]: rec(day, { planVersion: 4, meals: allOf('offplan') }) };
+  assertEq(L.weekStats(configDoc, recsEaten, day, day).mealAdherence, 1, 'all planned -> 100% adherence');
+  assertEq(L.weekStats(configDoc, recsOff, day, day).mealAdherence, 0, 'all off-plan -> 0% adherence');
+
+  // And it is still a logged meal, so the day gauge counts it as answered.
+  const gauge = L.dayGauge(configDoc, recsOff, day).find((g) => g.id === 'meals');
+  assertEq(gauge.done, true, 'off-plan still marks the meal as logged');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

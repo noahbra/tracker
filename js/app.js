@@ -57,9 +57,16 @@ const state = {
   sheet: null,          // { kind, ... }
   logger: null,         // { sessionId }
   editingSet: null,     // 'exId:idx' currently in input mode
+  viewDate: null,       // null = today; otherwise the past day being filled in
 };
 
 function todayStr() { return L.fmtDate(new Date()); }
+
+// The day every screen and every write is about. Backfilling a missed day is
+// the same app pointed at a different date, not a separate mode.
+function viewStr() { return state.viewDate || todayStr(); }
+function isToday() { return viewStr() === todayStr(); }
+
 function nowHour() { return new Date().getHours(); }
 function nowIso() {
   const d = new Date();
@@ -67,9 +74,15 @@ function nowIso() {
   return `${L.fmtDate(d)}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-function activeConfig() { return L.configFor(state.configDoc, todayStr()); }
+// Time-of-day drives the NEXT bar and completion stamps. On a past day the
+// clock is meaningless: treat it as fully elapsed and stamp midday, so a
+// backfilled session never claims to have happened at tonight's time.
+function viewHour() { return isToday() ? nowHour() : 23; }
+function stampIso() { return isToday() ? nowIso() : `${viewStr()}T12:00:00`; }
 
-function getRec(date = todayStr()) {
+function activeConfig() { return L.configFor(state.configDoc, viewStr()); }
+
+function getRec(date = viewStr()) {
   if (!state.records[date]) {
     state.records[date] = {
       date,
@@ -203,21 +216,23 @@ function sessionName(offered) {
 }
 
 function renderToday() {
-  const t = todayStr();
+  const t = viewStr();
   const rec = state.records[t] || { meals: {}, modifiers: {}, date: t, planVersion: activeConfig().planVersion };
   const config = activeConfig();
   const plan = L.dayPlan(state.configDoc, t);
   const offered = L.offeredSession(state.configDoc, state.records, t);
   const gauge = L.dayGauge(state.configDoc, state.records, t);
-  const next = L.nextAction(state.configDoc, state.records, state.measurements, t, nowHour(), exportStale(t));
+  const next = L.nextAction(state.configDoc, state.records, state.measurements, t, viewHour(), exportStale(t));
   const nut = L.dayNutrition(state.configDoc, rec.date ? rec : { ...rec, date: t });
   const avg = L.rollingAverage(state.records, t);
   const slope = L.trendSlope(state.records, t);
   const day = L.programDay(state.configDoc, t);
   const week = L.programWeek(state.configDoc, t);
 
-  const dateHead = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  const dateHead = L.parseDate(t).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   const toGo = avg != null ? Math.max(0, avg - config.targets.weightGoal) : null;
+  const canPrev = L.addDays(t, -1) >= L.programStart(state.configDoc);
+  const canNext = t < todayStr();
 
   let html = '';
   if (DEMO) html += `<div class="demo-banner">Demo data — nothing is saved</div>`;
@@ -225,10 +240,15 @@ function renderToday() {
   // header — Settings is a small header control, not a third tab (§4)
   html += `<header class="header">
     <div class="header-row">
-      <h1>${esc(dateHead)}</h1>
+      <div class="date-nav">
+        <button class="daystep" data-act="day-prev"${canPrev ? '' : ' disabled'} aria-label="Previous day">‹</button>
+        <h1>${esc(dateHead)}</h1>
+        <button class="daystep" data-act="day-next"${canNext ? '' : ' disabled'} aria-label="Next day">›</button>
+      </div>
       <button class="settings-link" data-act="sheet" data-sheet="settings">Settings</button>
     </div>
     <div class="sub num">Day ${day} · Week ${week} · ${toGo != null ? toGo.toFixed(1) : EMDASH} lb to go</div>
+    ${isToday() ? '' : `<button class="backfill-flag" data-act="day-today">Filling in a past day ${EMDASH} back to today</button>`}
     <div class="gauge" role="img" aria-label="${gauge.filter((g) => g.done).length} of 6 logged">
       ${gauge.map((g) => `<div class="seg${g.done ? ' done' : ''}" title="${g.label}"></div>`).join('')}
     </div>
@@ -339,7 +359,7 @@ function renderToday() {
 }
 
 function lastWeightSub() {
-  const t = todayStr();
+  const t = viewStr();
   for (let i = 1; i <= 30; i++) {
     const r = state.records[L.addDays(t, -i)];
     if (r && r.weight != null) return `Last recorded ${r.weight.toFixed(1)} lb`;
@@ -462,8 +482,9 @@ function renderMeals(rec, plan, config) {
     const st = rec.meals[meal.id];
     const total = L.mealTotal(meal);
     let sub;
-    if (st === 'eaten' || st === 'modified') {
-      sub = `<div class="meal-sub macro num">${total.cal} cal · ${total.protein} g protein${st === 'modified' ? ' · similar' : ''}</div>`;
+    if (st === 'eaten' || st === 'modified' || st === 'offplan') {
+      const tag = st === 'modified' ? ' · similar' : st === 'offplan' ? ' · off-plan' : '';
+      sub = `<div class="meal-sub macro num">${total.cal} cal · ${total.protein} g protein${tag}</div>`;
     } else if (st === 'skipped') {
       sub = `<div class="meal-sub">Skipped</div>`;
     } else {
@@ -537,9 +558,10 @@ function renderCheckin(rec) {
 // ---------- This week tab (§7.11) ----------
 
 function renderWeek() {
-  const t = todayStr();
-  const stats = L.weekStats(state.configDoc, state.records, t, t);
-  const rec7 = L.weeklyRecommendation(state.configDoc, state.records, t, t);
+  const t = viewStr();
+  const today = todayStr();
+  const stats = L.weekStats(state.configDoc, state.records, t, today);
+  const rec7 = L.weeklyRecommendation(state.configDoc, state.records, t, today);
   const sympDays = L.symptomDays(state.records, t);
   const dayLetters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
@@ -549,10 +571,20 @@ function renderWeek() {
     <button class="settings-link" data-act="sheet" data-sheet="settings">Settings</button>
   </div></header>`;
 
+  // Each day is a way in: tapping one points the Today screen at that date,
+  // which is how a missed day gets filled in.
+  const progStart = L.programStart(state.configDoc);
   html += `<section class="card"><span class="label">Sessions</span>
     <div class="week-strip">
-      ${stats.strip.map((d, i) => `<div class="day"><div class="cell ${d.state === 'done' ? 'done' : d.state === 'off' || d.state === 'blank' ? 'off' : ''}"></div><span class="label">${dayLetters[i]}</span></div>`).join('')}
-    </div></section>`;
+      ${stats.strip.map((d, i) => {
+        const pickable = d.date <= today && d.date >= progStart;
+        const cell = d.state === 'done' ? 'done' : d.state === 'off' || d.state === 'blank' ? 'off' : '';
+        return `<button class="day${d.date === t ? ' sel' : ''}" data-act="day-pick" data-date="${d.date}"${pickable ? '' : ' disabled'}>
+          <div class="cell ${cell}"></div><span class="label">${dayLetters[i]}</span>
+        </button>`;
+      }).join('')}
+    </div>
+    <div class="strip-hint">Tap a day to fill it in.</div></section>`;
 
   html += `<section class="card week-weight"><span class="label">Weight</span>
     <div><span class="big num">${stats.avgNow != null ? stats.avgNow.toFixed(1) : EMDASH}</span>
@@ -576,11 +608,11 @@ function renderWeek() {
 
   // Backup staleness (§6.4): this storage is local-only and iOS can evict it.
   // A manual backup that depends on remembering is not backup.
-  if (exportStale(t)) {
+  if (exportStale(today)) {
     const last = state.meta.lastExport;
     html += `<button class="prompt" data-act="export">
       <span class="title">Export a backup</span>
-      <span class="sub">${last ? `Last export ${L.daysBetween(last, t)} days ago` : 'Never exported'} · this data has no cloud copy.</span>
+      <span class="sub">${last ? `Last export ${L.daysBetween(last, today)} days ago` : 'Never exported'} · this data has no cloud copy.</span>
     </button>`;
   }
 
@@ -609,7 +641,7 @@ function fmtRefDate(iso) {
 }
 
 function renderReference() {
-  const t = todayStr();
+  const t = viewStr();
   const config = activeConfig();
   const tg = config.targets;
 
@@ -724,7 +756,7 @@ function renderReference() {
 // ---------- sheets ----------
 
 function sheetHtml(sheet) {
-  const t = todayStr();
+  const t = viewStr();
   const rec = state.records[t] || {};
   const config = activeConfig();
 
@@ -770,6 +802,7 @@ function sheetHtml(sheet) {
       <ul class="components">${meal.components.map((c) => `<li><span>${esc(c.name)}</span><span class="num">${c.cal} cal · ${c.protein} g</span></li>`).join('')}</ul>
       <button class="option-row" data-act="meal-set" data-meal="${meal.id}" data-state="eaten">Ate the planned meal</button>
       <button class="option-row" data-act="meal-set" data-meal="${meal.id}" data-state="modified">Ate something similar<span class="sub">Counts the same toward totals; tracked separately.</span></button>
+      <button class="option-row" data-act="meal-set" data-meal="${meal.id}" data-state="offplan">Ate off-plan<span class="sub">Low protein, heavy carbs, restaurant food. Counts toward calories and protein; does not count as adherence.</span></button>
       <button class="option-row" data-act="meal-set" data-meal="${meal.id}" data-state="skipped">Skipped it</button>
       <div class="sheet-actions"><button class="btn ghost" data-act="close-sheet">Cancel</button></div>`;
   }
@@ -826,7 +859,7 @@ function ensureWorkout() {
 }
 
 function renderLogger() {
-  const t = todayStr();
+  const t = viewStr();
   const rec = state.records[t] || { workout: null };
   const config = activeConfig();
   const session = config.sessions[state.logger.sessionId];
@@ -853,11 +886,14 @@ function renderLogger() {
           <span class="val num">${s.weight} <span class="x">×</span> ${s.reps}</span>
         </button>`;
       } else {
-        const wPh = s ? s.weight : (prog.suggested != null ? prog.suggested : '');
+        // The weight is a real value, not a placeholder: on a fresh exercise it
+        // is the plan's seeded start load, after that the progression
+        // suggestion. An empty box asks for a number at the worst moment.
+        const wVal = s ? s.weight : (prog.suggested != null ? prog.suggested : '');
         const rPh = s ? s.reps : e.reps;
         rows += `<div class="set-row" data-key="${key}">
           <span class="idx num">${i + 1}</span>
-          <input type="text" inputmode="decimal" class="wt" placeholder="${wPh}" value="${s ? s.weight : ''}" aria-label="weight">
+          <input type="text" inputmode="decimal" class="wt" placeholder="${wVal}" value="${wVal}" aria-label="weight">
           <span class="times">×</span>
           <input type="text" inputmode="numeric" class="reps" placeholder="${rPh}" value="${s ? s.reps : ''}" aria-label="reps">
           <button class="save-set" data-act="save-set" data-key="${key}" data-ex="${e.id}">Log</button>
@@ -865,11 +901,20 @@ function renderLogger() {
         if (!s && !editing) break; // one open row at a time per exercise
       }
     }
+
+    // How the set felt, which the logged reps cannot express. Drives what the
+    // app suggests next time: hit adds load, grindy holds it, two misses deload.
+    const mk = (workout.marks || {})[e.id] || null;
+    const markRow = `<div class="mark-row">
+      ${[['hit', 'Hit'], ['grindy', 'Grindy'], ['miss', 'Missed']].map(([v, label]) =>
+        `<button class="mark ${v}${mk === v ? ' sel' : ''}" data-act="mark-set" data-ex="${e.id}" data-mark="${v}">${label}</button>`).join('')}
+    </div>`;
     ex += `<div class="exercise${paired ? ' paired' : ''}">
       <div class="ex-head"><span class="name">${esc(e.name)}</span><span class="scheme num">${scheme}</span></div>
       ${paired && e.pair !== prevPair ? `<div class="pair-tag">Alternate with next · 90 s rests</div>` : ''}
       ${prog.cue ? `<div class="ex-cue${prog.tone === 'done' ? ' done' : ''}">${esc(prog.cue)}</div>` : ''}
       ${rows}
+      ${markRow}
     </div>`;
     prevPair = paired ? e.pair : null;
   }
@@ -936,7 +981,7 @@ async function doImport(files) {
 // ---------- actions ----------
 
 function handleAction(act, el) {
-  const t = todayStr();
+  const t = viewStr();
   switch (act) {
     case 'sheet': {
       state.sheet = { kind: el.dataset.sheet, mealId: el.dataset.meal, autofocus: true };
@@ -986,7 +1031,7 @@ function handleAction(act, el) {
       const v = parseFloat(document.getElementById('sh-waist').value);
       if (!isNaN(v) && v > 20 && v < 80) {
         mutate(() => {
-          state.measurements.push({ id: `waist-${Date.now()}`, takenAt: nowIso(), kind: 'waist', value: v, schemaVersion: state.meta.schemaVersion });
+          state.measurements.push({ id: `waist-${Date.now()}`, takenAt: stampIso(), kind: 'waist', value: v, schemaVersion: state.meta.schemaVersion });
           state.sheet = null;
         });
       } else { state.sheet = null; render(); }
@@ -999,7 +1044,7 @@ function handleAction(act, el) {
         const offered = L.offeredSession(state.configDoc, state.records, t);
         mutate(() => {
           const rec = getRec();
-          rec.cardio = { mode: offered.mode || 'walk', minutes: min, completedAt: rec.cardio?.completedAt || nowIso() };
+          rec.cardio = { mode: offered.mode || 'walk', minutes: min, completedAt: rec.cardio?.completedAt || stampIso() };
           if (!isNaN(hr)) rec.cardio.avgHr = hr;
           state.sheet = null;
         });
@@ -1013,12 +1058,12 @@ function handleAction(act, el) {
       mutate(() => {
         for (const [id, kind] of fields) {
           const v = parseFloat(document.getElementById(id).value);
-          if (!isNaN(v)) state.measurements.push({ id: `${kind}-${Date.now()}`, takenAt: nowIso(), kind, value: v, schemaVersion: state.meta.schemaVersion });
+          if (!isNaN(v)) state.measurements.push({ id: `${kind}-${Date.now()}`, takenAt: stampIso(), kind, value: v, schemaVersion: state.meta.schemaVersion });
         }
         const sys = parseFloat(document.getElementById('sh-sys').value);
         const dia = parseFloat(document.getElementById('sh-dia').value);
         if (!isNaN(sys)) {
-          const m = { id: `bp-${Date.now()}`, takenAt: nowIso(), kind: 'bloodPressure', value: sys, schemaVersion: state.meta.schemaVersion };
+          const m = { id: `bp-${Date.now()}`, takenAt: stampIso(), kind: 'bloodPressure', value: sys, schemaVersion: state.meta.schemaVersion };
           if (!isNaN(dia)) m.value2 = dia;
           state.measurements.push(m);
         }
@@ -1083,9 +1128,44 @@ function handleAction(act, el) {
       mutate(() => {
         const w = ensureWorkout();
         if (!isNaN(min)) w.minutes = min;
-        w.completedAt = w.completedAt || nowIso();
+        w.completedAt = w.completedAt || stampIso();
         state.logger = null;
         state.editingSet = null;
+      });
+      break;
+    }
+
+    // ---- day navigation (backfill) ----
+    // Bounded to the program's own span: never before day 1, never the future.
+    case 'day-prev': {
+      const d = L.addDays(viewStr(), -1);
+      if (d >= L.programStart(state.configDoc)) { state.viewDate = d; state.tab = 'today'; render(); }
+      break;
+    }
+    case 'day-next': {
+      const d = L.addDays(viewStr(), 1);
+      if (d <= todayStr()) { state.viewDate = d === todayStr() ? null : d; render(); }
+      break;
+    }
+    case 'day-today': state.viewDate = null; render(); break;
+    case 'day-pick': {
+      const d = el.dataset.date;
+      if (d && d <= todayStr() && d >= L.programStart(state.configDoc)) {
+        state.viewDate = d === todayStr() ? null : d;
+        state.tab = 'today';
+        render();
+      }
+      break;
+    }
+
+    case 'mark-set': {
+      const exId = el.dataset.ex;
+      const m = el.dataset.mark;
+      mutate(() => {
+        const w = ensureWorkout();
+        if (!w.marks) w.marks = {};
+        if (w.marks[exId] === m) delete w.marks[exId];
+        else w.marks[exId] = m;
       });
       break;
     }

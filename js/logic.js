@@ -108,9 +108,12 @@ export function mealTotal(meal) {
 export function dayNutrition(configDoc, record) {
   const config = configByVersion(configDoc, record.planVersion);
   let cal = 0, protein = 0;
+  // 'offplan' is food eaten that departed from the plan. It counts toward the
+  // day's totals — a meal was eaten — but never toward adherence (§weekStats),
+  // which is the signal the weekly recommendation acts on.
   const ate = (id) => {
     const s = record.meals && record.meals[id];
-    return s === 'eaten' || s === 'modified';
+    return s === 'eaten' || s === 'modified' || s === 'offplan';
   };
   for (const meal of config.meals) {
     if (ate(meal.id)) {
@@ -285,7 +288,8 @@ export function exerciseHistory(records, exerciseId) {
       if (id === exerciseId) sets[Number(idx)] = s;
     }
     const logged = sets.filter(Boolean);
-    if (logged.length) out.push({ date: r.date, sets, logged });
+    const mark = (r.workout.marks || {})[exerciseId];
+    if (logged.length) out.push({ date: r.date, sets, logged, mark: mark || null });
   }
   return out;
 }
@@ -293,6 +297,20 @@ export function exerciseHistory(records, exerciseId) {
 function allRepsHit(session, exCfg) {
   if (session.logged.length < exCfg.sets) return false;
   return session.logged.every((s) => s.reps >= exCfg.reps);
+}
+
+export const MARKS = ['hit', 'grindy', 'miss'];
+
+// How a past session resolved. An explicit mark always wins; without one the
+// outcome is inferred from reps, which is what every pre-mark session has.
+//
+// 'grindy' exists because it cannot be inferred: the reps were all completed,
+// so it is indistinguishable from a clean set in the logged numbers. It is a
+// success that does not advance — it holds the load rather than adding to it,
+// and it never counts toward a deload.
+function outcomeOf(session, exCfg) {
+  if (MARKS.includes(session.mark)) return session.mark;
+  return allRepsHit(session, exCfg) ? 'hit' : 'miss';
 }
 
 function sessionLoad(session) {
@@ -309,15 +327,26 @@ export function progression(configDoc, records, exerciseId, exCfg, todayStr) {
   const p = config.progression;
   const hist = exerciseHistory(records, exerciseId);
 
-  if (!hist.length) return { suggested: null, cue: null, tone: 'none' };
+  // No history: the seeded start load from the plan. A blank field asks the
+  // user to invent a number at the moment they are least able to judge it.
+  if (!hist.length) {
+    if (exCfg.startWeight == null) return { suggested: null, cue: null, tone: 'none' };
+    return {
+      suggested: exCfg.startWeight,
+      cue: `Starting weight — ${exCfg.startWeight} ${exCfg.unit}`,
+      tone: 'neutral',
+    };
+  }
 
   const last = hist[hist.length - 1];
   const lastLoad = sessionLoad(last);
+  const lastOutcome = outcomeOf(last, exCfg);
 
-  // Heaviest load at which all prescribed reps were completed.
+  // Heaviest load carried for all prescribed reps. Grindy counts: the reps were
+  // completed, it just cost everything to do it.
   let lastSuccess = null;
   for (const s of hist) {
-    if (allRepsHit(s, exCfg)) {
+    if (outcomeOf(s, exCfg) !== 'miss') {
       const load = sessionLoad(s);
       if (lastSuccess === null || load > lastSuccess) lastSuccess = load;
     }
@@ -340,7 +369,7 @@ export function progression(configDoc, records, exerciseId, exCfg, todayStr) {
   let misses = 0;
   for (let i = hist.length - 1; i >= 0; i--) {
     const s = hist[i];
-    if (allRepsHit(s, exCfg)) break;
+    if (outcomeOf(s, exCfg) !== 'miss') break;
     if (lastSuccess === null || sessionLoad(s) >= lastSuccess) {
       if (lastSuccess !== null && sessionLoad(s) > lastSuccess) continue; // over-reach: skip
       misses++;
@@ -351,12 +380,20 @@ export function progression(configDoc, records, exerciseId, exCfg, todayStr) {
     const suggested = roundTo(lastSuccess * p.deloadFactor, p.roundToNearest);
     return {
       suggested,
-      cue: `Two misses — drop to ${suggested} ${exCfg.unit} and rebuild`,
+      cue: `${misses} misses — drop to ${suggested} ${exCfg.unit} and rebuild`,
       tone: 'neutral',
     };
   }
 
-  if (allRepsHit(last, exCfg)) {
+  if (lastOutcome === 'grindy') {
+    return {
+      suggested: lastLoad,
+      cue: `Ground it out at ${lastLoad} ${exCfg.unit} — run it again`,
+      tone: 'neutral',
+    };
+  }
+
+  if (lastOutcome === 'hit') {
     const inc = exCfg.increment != null ? exCfg.increment : p.roundToNearest;
     const suggested = roundTo(lastLoad + inc, p.roundToNearest);
     return {
@@ -718,19 +755,20 @@ export function csvToDays(text) {
 }
 
 export function workoutsToCsv(records) {
-  const lines = [csvLine(['date', 'sessionId', 'minutes', 'completedAt', 'exerciseId', 'setIndex', 'weight', 'reps'])];
+  const lines = [csvLine(['date', 'sessionId', 'minutes', 'completedAt', 'exerciseId', 'setIndex', 'weight', 'reps', 'mark'])];
   for (const r of Object.values(records).sort((a, b) => a.date.localeCompare(b.date))) {
     if (!r.workout) continue;
     const w = r.workout;
+    const marks = w.marks || {};
     const keys = Object.keys(w.sets || {});
     if (!keys.length) {
-      lines.push(csvLine([r.date, w.sessionId, w.minutes, w.completedAt, '', '', '', '']));
+      lines.push(csvLine([r.date, w.sessionId, w.minutes, w.completedAt, '', '', '', '', '']));
       continue;
     }
     for (const key of keys.sort()) {
       const [exId, setIdx] = key.split(':');
       const s = w.sets[key];
-      lines.push(csvLine([r.date, w.sessionId, w.minutes, w.completedAt, exId, setIdx, s.weight, s.reps]));
+      lines.push(csvLine([r.date, w.sessionId, w.minutes, w.completedAt, exId, setIdx, s.weight, s.reps, marks[exId]]));
     }
   }
   return lines.join('\n') + '\n';
@@ -755,6 +793,13 @@ export function csvToWorkouts(text) {
         weight: Number(get('weight')),
         reps: Number(get('reps')),
       };
+      // Created only when a mark exists, so a workout that has none round-trips
+      // byte-identical rather than gaining an empty object.
+      const mark = get('mark');
+      if (mark) {
+        if (!out[date].marks) out[date].marks = {};
+        out[date].marks[exId] = mark;
+      }
     }
   }
   return out;

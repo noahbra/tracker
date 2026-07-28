@@ -20,7 +20,7 @@ There is no cloud copy, and iOS can evict web storage for apps unused for extend
 
 ## Edit the plan
 
-Everything about the plan lives in **`config/plan.json`**: meals and components, calorie/protein targets, the weekly schedule, lift sessions, progression parameters, ramp-in phases. No plan value appears in application code.
+Everything about the plan lives in **`config/plan.json`**: meals and components, calorie/protein targets, the weekly schedule, lift sessions, per-exercise `startWeight`, progression parameters, ramp-in phases. No plan value appears in application code.
 
 To revise the plan:
 
@@ -43,13 +43,45 @@ sw.js                   offline cache (bump VERSION on breaking changes)
 tests/logic.test.mjs    run: node tests/logic.test.mjs
 ```
 
+## Fill in a missed day
+
+The date in the Today header is a control. Step back with `‹`, or tap any day in the **This week** strip, and the whole screen points at that date: weight, meals, steps, check-in, and the lift logger all read and write that day. A brass line under the header says you are filling in a past day and takes you back to today.
+
+You cannot step past today, or back before day 1 of the program. Sessions logged on a past day carry that day's date, so they feed the A/B alternation and progression history exactly as if they had been logged live.
+
+## How the set felt
+
+Every exercise in the logger has **Hit · Grindy · Missed**. This is what the app uses to pick next session's load:
+
+| Mark | Next time |
+|------|-----------|
+| Hit | Add the increment |
+| Grindy | Repeat the same weight |
+| Missed | Repeat; two consecutive misses deload to 90% of the last good load |
+
+Grindy exists because it cannot be inferred. All the reps were completed, so the logged numbers are indistinguishable from a clean set. It counts as a success (it never contributes to a deload) but it does not advance the load. A session left unmarked falls back to inferring hit-or-miss from the reps, which is how every session logged before marks existed is still read correctly.
+
+## Starting weights
+
+Each exercise in `config/plan.json` carries a `startWeight`. It is what the logger prefills the first time that lift appears, before there is any history to progress from. After the first session, history wins and the seed is ignored.
+
+## Meals
+
+Four states: **ate the planned meal**, **ate something similar**, **ate off-plan**, **skipped**. Off-plan means food that was eaten but departed from the plan (low protein, heavy carbs, restaurant). It counts toward the day's calories and protein, because a meal was eaten, but it does not count toward meal adherence, which is the number the weekly recommendation acts on.
+
 ## Tests
 
 ```
 node tests/logic.test.mjs
 ```
 
-Covers the brief's acceptance criteria that are computable: trend slope vs independent least squares, A/B alternation after a missed Monday, miss attribution (over-reach never triggers deload), CSV export/import round-trip, per-`planVersion` history valuation, phase overrides, the recommendation ladder.
+Covers the brief's acceptance criteria that are computable: trend slope vs independent least squares, A/B alternation after a missed Monday, miss attribution (over-reach never triggers deload), CSV export/import round-trip, per-`planVersion` history valuation, phase overrides, the recommendation ladder, the set marks (including that a grindy session breaks a miss streak), seeded start loads, and off-plan meals counting calories without counting adherence.
+
+There is also a browser-level test for backfill, since no pure-logic test can show that a day logged while viewing a past date is written to that date rather than today. It needs Chrome and a local server; see the header of the file for the exact commands.
+
+```
+node tests/backfill.browser.mjs
+```
 
 ## Not in this build (web platform limits)
 
