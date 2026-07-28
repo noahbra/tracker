@@ -229,7 +229,7 @@
         "liftA": {
           "name": "Lift A",
           "exercises": [
-            { "id": "trapbar",  "name": "Trap bar deadlift",     "sets": 3, "reps": 5,  "increment": 5,  "unit": "lb", "startWeight": 205 },
+            { "id": "trapbar",  "name": "Trap bar deadlift",     "sets": 3, "reps": 5,  "increment": 5,  "unit": "lb", "startWeight": 185 },
             { "id": "bench",    "name": "Barbell bench press",   "sets": 3, "reps": 5,  "increment": 5,  "unit": "lb", "startWeight": 105 },
             { "id": "csrow",    "name": "Chest-supported row",   "sets": 3, "reps": 8,  "increment": 5,  "unit": "lb", "pair": "3", "startWeight": 90 },
             { "id": "facepull", "name": "Face pull",             "sets": 2, "reps": 15, "increment": 5,  "unit": "lb", "pair": "3", "startWeight": 35 },
