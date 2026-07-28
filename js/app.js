@@ -60,6 +60,11 @@ const state = {
   viewDate: null,       // null = today; otherwise the past day being filled in
 };
 
+// Which cached build is actually serving this session. Read from the service
+// worker's own cache name, so it reports what is running rather than what was
+// last deployed — the two diverged repeatedly and there was no way to tell.
+let activeBuild = null;
+
 function todayStr() { return L.fmtDate(new Date()); }
 
 // The day every screen and every write is about. Backfilling a missed day is
@@ -841,6 +846,7 @@ function sheetHtml(sheet) {
         <button class="srow" data-act="export">Export backup<span class="sub">days.csv, workouts.csv, measurements.csv, plan config</span></button>
         <button class="srow" data-act="import">Import backup<span class="sub">Same files back in; idempotent on date and id.</span></button>
         <div class="srow">Plan<span class="sub num">Version ${cfg.planVersion} · ${esc(cfg.label || '')} · effective ${cfg.effectiveFrom}</span></div>
+        <div class="srow">Build<span class="sub num">${esc(activeBuild || 'not cached')}</span></div>
         <div class="srow">Edit the plan<span class="sub">Edit config/plan.json in the repo. A revision is a new planVersion with a new effectiveFrom; history stays valued under the version in force when it was logged.</span></div>
         <button class="srow" data-act="wipe" style="color:var(--alert)">Erase all data<span class="sub">Everything local to this phone. Export first.</span></button>
       </div>
@@ -1255,6 +1261,13 @@ function render() {
 async function boot() {
   const res = await fetch('config/plan.json');
   state.configDoc = await res.json();
+
+  if (window.caches) {
+    try {
+      const keys = await caches.keys();
+      activeBuild = keys.find((k) => k.startsWith('tracker-')) || null;
+    } catch { /* private mode or no cache API — Settings shows "not cached" */ }
+  }
 
   if (DEMO) {
     const d = demoData();

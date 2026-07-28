@@ -12,6 +12,8 @@ Built from `tracker-app-brief-v1.1`. No framework, no build step: vanilla JS, st
 
 A new build installs in the background and the app reloads itself once to pick it up, so a fix is live the next time you open it rather than the time after. The reload is skipped while a sheet or the logger is open, so it never interrupts entry.
 
+**Settings → Build** shows which cached build is actually running (`tracker-vN`), read from the service worker's own cache rather than from what was last deployed. If it lags the latest version, close the app fully and reopen it. Do not clear website data to force an update: that is where your log lives, and clearing it erases everything not exported.
+
 `?demo` on the URL shows the app with three weeks of sample data without touching your real data.
 
 ## Back up your data
