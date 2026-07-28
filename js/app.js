@@ -1311,6 +1311,18 @@ async function boot() {
     navigator.storage.persist().catch(() => {});
   }
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    // A new build installs in the background and only takes effect on the open
+    // AFTER this one, so a shipped fix looks like it never shipped. Reload once
+    // when the new worker takes control. Skipped on first install (nothing to
+    // replace) and while a sheet or the logger is open, since those hold typed
+    // values that autosave has not seen yet.
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || reloaded || state.logger || state.sheet) return;
+      reloaded = true;
+      location.reload();
+    });
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 }

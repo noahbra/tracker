@@ -10,6 +10,8 @@ Built from `tracker-app-brief-v1.1`. No framework, no build step: vanilla JS, st
 2. Share → **Add to Home Screen**. It installs as a standalone app and works fully offline.
 3. Data lives on the phone (localStorage), never on a server. Autosaves on every tap.
 
+A new build installs in the background and the app reloads itself once to pick it up, so a fix is live the next time you open it rather than the time after. The reload is skipped while a sheet or the logger is open, so it never interrupts entry.
+
 `?demo` on the URL shows the app with three weeks of sample data without touching your real data.
 
 ## Back up your data
