@@ -428,14 +428,24 @@ h1, h2, .display {
 
 /* ---------- lift logger ---------- */
 
+/* Column flex, with the body scrolling and the foot a normal flex item.
+   The foot used to be position:fixed, but .logger is transformed (the rise
+   animation), and a transform makes a fixed descendant resolve against that
+   ancestor instead of the viewport — so the foot scrolled with the content and
+   sat on top of the last exercise. No amount of bottom padding fixes that;
+   taking the foot out of flow entirely is what fixes it. */
 .logger {
   position: fixed; inset: 0; z-index: 100;
   background: var(--ground);
-  overflow-y: auto;
+  display: flex; flex-direction: column;
   transform: translateY(100%);
   animation: rise 220ms ease forwards;
 }
-.logger-inner { max-width: 460px; margin: 0 auto; padding: 0 14px 120px; }
+.logger-inner {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  width: 100%; max-width: 460px; margin: 0 auto;
+  padding: 0 14px 24px;
+}
 .logger-head {
   display: flex; justify-content: space-between; align-items: center;
   padding: 14px 0;
@@ -487,7 +497,7 @@ h1, h2, .display {
 .mark.miss.sel { border-color: var(--alert); background: var(--alert); }
 
 .logger-foot {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
+  flex: 0 0 auto;
   background: var(--ground);
   border-top: 1px solid var(--ink);
 }
