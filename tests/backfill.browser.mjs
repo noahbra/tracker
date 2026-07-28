@@ -75,6 +75,33 @@ const backToday = await evalJs(`document.querySelector('.date-nav h1').textConte
 check('returns to today', backToday === today, backToday);
 check('today untouched by the backfill', !parsed[todayIso] || parsed[todayIso].weight == null);
 
+// A logged workout must stay reachable even on a day the calendar does not
+// offer a lift (phase override, or a substitution that stopped applying once
+// another day was filled in). Branching the training card only on what is
+// offered stranded the record on disk with no way to open it.
+await evalJs(`
+  const t = (()=>{const d=new Date();const p=n=>String(n).padStart(2,'0');return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());})();
+  localStorage.clear();
+  localStorage.setItem('tracker.days', JSON.stringify({[t]:{
+    date:t, schemaVersion:1, planVersion:4, meals:{}, modifiers:{},
+    workout:{ sessionId:'liftA', sets:{'trapbar:0':{weight:185,reps:5}}, minutes:50, completedAt: t+'T12:00:00' }
+  }}));
+  location.reload();
+`);
+await new Promise((r) => setTimeout(r, 2500));
+const offersLift = await evalJs(`(document.getElementById('sec-training')||{}).textContent?.includes('Lift')`);
+const wayIn = await evalJs(`!!document.querySelector('[data-act="open-logger"]')`);
+check('logged workout is reachable on a non-lift day', wayIn === true);
+check('and the card names the session', offersLift === true);
+// Guarded: when this regresses there is no button, and the test must report a
+// failure rather than throwing before it prints any results.
+await evalJs(`(()=>{const b=document.querySelector('[data-act="open-logger"]'); if(b) b.click(); return !!b;})()`);
+await new Promise((r) => setTimeout(r, 600));
+const reopened = await evalJs(`!!document.querySelector('.logger')`);
+const keptSet = await evalJs(`document.querySelectorAll('.logger .set-row.compact').length`);
+check('it opens the logger', reopened === true);
+check('with the logged set intact', keptSet >= 1, `${keptSet} compact rows`);
+
 for (const r of ok) console.log(`${r.pass ? 'PASS' : 'FAIL'}: ${r.name}${r.detail ? ' — ' + r.detail : ''}`);
 const failed = ok.filter((r) => !r.pass).length;
 console.log(`\n${ok.length - failed} passed, ${failed} failed`);

@@ -77,7 +77,7 @@ node tests/logic.test.mjs
 
 Covers the brief's acceptance criteria that are computable: trend slope vs independent least squares, A/B alternation after a missed Monday, miss attribution (over-reach never triggers deload), CSV export/import round-trip, per-`planVersion` history valuation, phase overrides, the recommendation ladder, the set marks (including that a grindy session breaks a miss streak), seeded start loads, and off-plan meals counting calories without counting adherence.
 
-There is also a browser-level test for backfill, since no pure-logic test can show that a day logged while viewing a past date is written to that date rather than today. It needs Chrome and a local server; see the header of the file for the exact commands.
+There is also a browser-level test for the things no pure-logic test can show: that a day logged while viewing a past date is written to that date rather than today, and that a logged workout stays reachable on a day the calendar does not offer a lift. It needs Chrome and a local server; see the header of the file for the exact commands.
 
 ```
 node tests/backfill.browser.mjs

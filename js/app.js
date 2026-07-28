@@ -386,36 +386,52 @@ function measuredThisWeek(t) {
 
 // ---------- training section ----------
 
+// A day's logged lift, with the way back into it. Rendered whenever a workout
+// exists on the record — see the orphan note in renderTraining.
+function liftCard(rec, config, idAttr) {
+  const session = config.sessions[rec.workout.sessionId];
+  if (!session) return '';
+  const { progressed, allHit } = workoutSummary(rec, session);
+  const done = !!rec.workout.completedAt;
+  return `<section class="card training-done"${idAttr}>
+    <span class="label">Training ${EMDASH} ${esc(session.name)} ${done ? 'complete' : 'in progress'}</span>
+    <div class="training-stats">
+      <div class="stat"><span class="num">${progressed}</span><span class="label">Exercises progressed</span></div>
+      <div class="stat"><span class="num">${allHit ? 'Yes' : 'No'}</span><span class="label">All prescribed reps</span></div>
+      <div class="stat"><span class="num">${rec.workout.minutes != null ? rec.workout.minutes : EMDASH}</span><span class="label">Minutes</span></div>
+    </div>
+    <button class="reopen" data-act="open-logger">Reopen logger</button>
+  </section>`;
+}
+
 function renderTraining(rec, plan, offered) {
   const config = activeConfig();
   let inner = '';
 
+  // A logged workout must always be reachable, even when the calendar for that
+  // day does not offer a lift — a phase override, or a Tuesday substitution
+  // that stopped applying once Monday got filled in. Branching only on what is
+  // offered stranded the record on disk with no way to open it.
+  const hasWorkout = !!(rec.workout && (rec.workout.completedAt || Object.keys(rec.workout.sets || {}).length));
+  const orphan = hasWorkout && offered.kind !== 'lift';
+  const secId = orphan ? '' : ' id="sec-training"';
+
   if (plan.suppressed) {
-    inner = `<section class="card" id="sec-training"><span class="label">Training</span>
+    inner = `<section class="card"${secId}><span class="label">Training</span>
       <div class="rest-copy">Rest day this phase${plan.phase && plan.phase.note ? ` · ${esc(plan.phase.note.toLowerCase())}` : ''}.</div></section>`;
   } else if (offered.kind === 'rest') {
-    inner = `<section class="card" id="sec-training"><span class="label">Training</span>
+    inner = `<section class="card"${secId}><span class="label">Training</span>
       <div class="rest-copy">Rest day. Walk if you feel like it.</div></section>`;
   } else if (offered.kind === 'lift') {
     const done = rec.workout && rec.workout.completedAt;
     if (!done) {
       const session = config.sessions[offered.sessionId];
-      inner = `<button class="prompt" id="sec-training" data-act="open-logger">
+      inner = `<button class="prompt"${secId} data-act="open-logger">
         <span class="title">Start ${esc(session.name)}</span>
         <span class="sub">${offered.pushedFrom ? `Pushed from ${offered.pushedFrom}` : `${session.exercises.length} exercises · about 55 min`}</span>
       </button>`;
     } else {
-      const session = config.sessions[rec.workout.sessionId];
-      const { progressed, allHit } = workoutSummary(rec, session);
-      inner = `<section class="card training-done" id="sec-training">
-        <span class="label">Training ${EMDASH} ${esc(session.name)} complete</span>
-        <div class="training-stats">
-          <div class="stat"><span class="num">${progressed}</span><span class="label">Exercises progressed</span></div>
-          <div class="stat"><span class="num">${allHit ? 'Yes' : 'No'}</span><span class="label">All prescribed reps</span></div>
-          <div class="stat"><span class="num">${rec.workout.minutes != null ? rec.workout.minutes : EMDASH}</span><span class="label">Minutes</span></div>
-        </div>
-        <button class="reopen" data-act="open-logger">Reopen logger</button>
-      </section>`;
+      inner = liftCard(rec, config, secId);
     }
   } else {
     // cardio / walk
@@ -429,12 +445,12 @@ function renderTraining(rec, plan, offered) {
         subParts.push(`HR ${config.targets.zone2HrRange[0]}–${config.targets.zone2HrRange[1]}`);
         if (config.zone2Guidance) subParts.push(config.zone2Guidance);
       }
-      inner = `<button class="prompt" id="sec-training" data-act="sheet" data-sheet="cardio">
+      inner = `<button class="prompt"${secId} data-act="sheet" data-sheet="cardio">
         <span class="title">Log ${esc(nm)}</span>
         <span class="sub">${esc(subParts.join(' · '))}</span>
       </button>`;
     } else {
-      inner = `<section class="card training-done" id="sec-training">
+      inner = `<section class="card training-done"${secId}>
         <span class="label">Training ${EMDASH} ${esc(sessionName(offered))} complete</span>
         <div class="training-stats">
           <div class="stat"><span class="num">${rec.cardio.minutes}</span><span class="label">Minutes</span></div>
@@ -444,7 +460,9 @@ function renderTraining(rec, plan, offered) {
       </section>`;
     }
   }
-  return inner;
+  // Orphaned lift leads, so the thing that actually happened is what you see
+  // first; the day's scheduled session still follows it.
+  return orphan ? liftCard(rec, config, ' id="sec-training"') + inner : inner;
 }
 
 function workoutSummary(rec, session) {
@@ -1116,7 +1134,11 @@ function handleAction(act, el) {
     case 'open-logger': {
       const offered = L.offeredSession(state.configDoc, state.records, t);
       const rec = state.records[t];
-      const sessionId = rec && rec.workout ? rec.workout.sessionId : offered.sessionId;
+      // offered.sessionId is undefined on a day that offers no lift, which is
+      // reachable now that a logged workout is openable from any day.
+      const sessionId = (rec && rec.workout && rec.workout.sessionId)
+        || offered.sessionId
+        || L.nextLiftId(state.records);
       openLogger(sessionId);
       break;
     }
