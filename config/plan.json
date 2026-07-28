@@ -137,7 +137,7 @@
 
     {
       "planVersion": 4,
-      "effectiveFrom": "2026-07-28",
+      "effectiveFrom": "2026-07-26",
       "label": "Rev 3 + seeded start loads, set marks",
 
       "targets": {

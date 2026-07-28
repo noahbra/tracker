@@ -32,10 +32,13 @@ export function weekday(dateStr) {
 // ---------- config resolution ----------
 
 // Active config version for a date: latest version with effectiveFrom <= date.
+// Ties on effectiveFrom break on planVersion, so a revision that supersedes an
+// earlier version from the same date wins explicitly rather than by relying on
+// sort stability or array order.
 export function configFor(configDoc, dateStr) {
   const eligible = configDoc.versions
     .filter((v) => v.effectiveFrom <= dateStr)
-    .sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
+    .sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom) || a.planVersion - b.planVersion);
   return eligible[eligible.length - 1] || configDoc.versions[0];
 }
 

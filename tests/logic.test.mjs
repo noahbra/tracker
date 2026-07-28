@@ -409,6 +409,35 @@ function benchSets(weight, reps3) {
   assertEq(L.progression(configDoc, r, 'bench', b4, '2026-08-20').suggested, 150, 'history overrides the seed');
 }
 
+// The seeds must cover the LIVE plan from day 1, not from the day the revision
+// happened to be authored. Regression: v4 was first dated the day it shipped,
+// so the program's opening days resolved to a version with no startWeight and
+// the logger showed blank weights on exactly the days worth backfilling.
+{
+  const start = L.programStart(liveDoc);
+  const blanks = [];
+  for (let i = 0; i < 120; i++) {
+    const day = L.addDays(start, i);
+    const cfg = L.configFor(liveDoc, day);
+    for (const s of Object.values(cfg.sessions)) {
+      for (const e of s.exercises) {
+        if (e.startWeight == null) blanks.push(`${day}:${e.id}`);
+        else if (L.progression(liveDoc, {}, e.id, e, day).suggested == null) blanks.push(`${day}:${e.id}:nosuggest`);
+      }
+    }
+  }
+  assertEq(blanks.slice(0, 5), [], 'live plan seeds every exercise on every day from program start');
+
+  // Same-date revisions resolve to the higher planVersion, not to array order.
+  const tie = {
+    versions: [
+      { planVersion: 9, effectiveFrom: '2026-07-26', sessions: {}, meals: [] },
+      { planVersion: 7, effectiveFrom: '2026-07-26', sessions: {}, meals: [] },
+    ],
+  };
+  assertEq(L.configFor(tie, '2026-07-26').planVersion, 9, 'same-date versions break the tie on planVersion');
+}
+
 // ---------- set marks: hit / grindy / missed ----------
 
 function markedDay(date, sets, marks) {
