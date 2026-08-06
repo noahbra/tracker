@@ -1140,10 +1140,12 @@ function handleAction(act, el) {
     case 'open-logger': {
       const offered = L.offeredSession(state.configDoc, state.records, t);
       const rec = state.records[t];
-      // offered.sessionId is undefined on a day that offers no lift, which is
-      // reachable now that a logged workout is openable from any day.
-      const sessionId = (rec && rec.workout && rec.workout.sessionId)
-        || offered.sessionId
+      // What is offered wins, because that is the name on the button that was
+      // just tapped; offeredSession already yields to a workout started on this
+      // day. The record is the fallback only where no lift is offered at all —
+      // an orphan, reachable now that a logged workout opens from any day.
+      const sessionId = offered.sessionId
+        || (rec && rec.workout && rec.workout.sessionId)
         || L.nextLiftId(state.records);
       openLogger(sessionId);
       break;

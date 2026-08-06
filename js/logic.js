@@ -209,6 +209,16 @@ export function nextLiftId(records) {
   return last === 'liftA' ? 'liftB' : 'liftA';
 }
 
+// Which lift a given day is on. A workout already started or finished on that
+// day owns it; the A/B alternation only decides a day with nothing on it yet.
+// An empty shell (logger opened, then backed out of) is not "started" and must
+// not own the day, or a stale shell keeps offering a session already done.
+export function liftIdFor(records, dateStr) {
+  const w = records[dateStr] && records[dateStr].workout;
+  const started = w && w.sessionId && (w.completedAt || Object.keys(w.sets || {}).length);
+  return started ? w.sessionId : nextLiftId(records);
+}
+
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 // Most recent scheduled, non-suppressed lift day strictly before dateStr that
@@ -235,7 +245,7 @@ export function offeredSession(configDoc, records, dateStr) {
   const wd = weekday(dateStr);
 
   if (plan.type === 'lift') {
-    const sessionId = nextLiftId(records);
+    const sessionId = liftIdFor(records, dateStr);
     const missed = missedLiftDayBefore(configDoc, records, dateStr);
     return {
       kind: 'lift',
@@ -258,7 +268,7 @@ export function offeredSession(configDoc, records, dateStr) {
     if (yPlan.type === 'lift' && !yPlan.suppressed && !yDone && !alreadyCardio) {
       return {
         kind: 'lift',
-        sessionId: nextLiftId(records),
+        sessionId: liftIdFor(records, dateStr),
         pushedFrom: DAY_NAMES[weekday(yesterday)],
         substituted: true,
         plan,

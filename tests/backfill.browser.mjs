@@ -102,6 +102,46 @@ const keptSet = await evalJs(`document.querySelectorAll('.logger .set-row.compac
 check('it opens the logger', reopened === true);
 check('with the logged set intact', keptSet >= 1, `${keptSet} compact rows`);
 
+// The button and the logger it opens must name the same lift. An empty shell
+// left by opening the logger and backing out used to hijack the tap: the card
+// offered Lift B, the click reopened the abandoned Lift A.
+await evalJs(`localStorage.clear(); location.reload();`);
+await new Promise((r) => setTimeout(r, 2500));
+let back = -1;
+for (let k = 0; k < 7; k++) {
+  const txt = await evalJs(`(document.getElementById('sec-training')||{}).textContent || ''`);
+  if (txt.includes('Start Lift')) { back = k; break; }
+  await evalJs(`document.querySelector('[data-act="day-prev"]').click()`);
+  await new Promise((r) => setTimeout(r, 400));
+}
+check('found a lift day to test on', back >= 0, `${back} day(s) back`);
+if (back >= 0) {
+  await evalJs(`
+    const iso = (d) => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const day = new Date(); day.setDate(day.getDate() - ${back});
+    const prior = new Date(day); prior.setDate(prior.getDate() - 14);
+    const blank = (d) => ({ date: iso(d), schemaVersion:1, planVersion:4, meals:{}, modifiers:{} });
+    const days = {};
+    // Lift A is the last one completed, so the day should offer Lift B...
+    days[iso(prior)] = { ...blank(prior), workout:{ sessionId:'liftA', sets:{'trapbar:0':{weight:185,reps:5}}, minutes:50, completedAt: iso(prior)+'T12:00:00' } };
+    // ...despite the abandoned Lift A shell sitting on it.
+    days[iso(day)] = { ...blank(day), workout:{ sessionId:'liftA', sets:{} } };
+    localStorage.setItem('tracker.days', JSON.stringify(days));
+    location.reload();
+  `);
+  await new Promise((r) => setTimeout(r, 2500));
+  for (let k = 0; k < back; k++) {
+    await evalJs(`document.querySelector('[data-act="day-prev"]').click()`);
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  const offerTxt = await evalJs(`(document.getElementById('sec-training')||{}).textContent || ''`);
+  check('an empty shell does not change what the card offers', offerTxt.includes('Start Lift B'), offerTxt.trim().slice(0, 60));
+  await evalJs(`(()=>{const b=document.querySelector('[data-act="open-logger"]'); if(b) b.click(); return !!b;})()`);
+  await new Promise((r) => setTimeout(r, 600));
+  const opened = await evalJs(`(document.querySelector('.logger-head h2')||{}).textContent || ''`);
+  check('the logger opens the lift the card named', opened === 'Lift B', `card said Lift B, logger opened ${opened || 'nothing'}`);
+}
+
 for (const r of ok) console.log(`${r.pass ? 'PASS' : 'FAIL'}: ${r.name}${r.detail ? ' — ' + r.detail : ''}`);
 const failed = ok.filter((r) => !r.pass).length;
 console.log(`\n${ok.length - failed} passed, ${failed} failed`);

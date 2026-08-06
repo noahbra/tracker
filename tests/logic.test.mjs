@@ -151,6 +151,21 @@ assertEq(L.dayPlan(configDoc, '2026-08-16').calorieTarget, 2260, 'Sunday rest ca
   assertEq(fri.kind, 'cardio', 'Friday never offers a lift');
   // No history at all -> first lift day offers A.
   assertEq(L.offeredSession(configDoc, {}, '2026-07-13').sessionId, 'liftA', 'first ever lift is A');
+
+  // A day already carrying a workout is on that workout's session, so the card
+  // and the logger it opens can never name different lifts. Last completed here
+  // is Thursday's A, so the alternation alone would say B.
+  const r3 = { ...records };
+  r3['2026-08-24'] = rec('2026-08-24', { workout: { sessionId: 'liftA', sets: { 'bench:0': { weight: 105, reps: 5 } } } });
+  assertEq(L.offeredSession(configDoc, r3, '2026-08-24').sessionId, 'liftA', 'a started workout owns its day');
+  assertEq(L.liftIdFor(r3, '2026-08-24'), 'liftA', 'liftIdFor agrees with the offer');
+
+  // An empty shell — logger opened, backed out of — is not a started workout
+  // and must not pin the day to a session already completed elsewhere.
+  const r4 = { ...records };
+  r4['2026-08-24'] = rec('2026-08-24', { workout: { sessionId: 'liftA', sets: {} } });
+  assertEq(L.offeredSession(configDoc, r4, '2026-08-24').sessionId, 'liftB', 'empty shell does not own the day');
+  assertEq(L.liftIdFor(r4, '2026-08-24'), 'liftB', 'liftIdFor ignores an empty shell');
 }
 
 // ---------- progression (§8.2, §11) ----------
