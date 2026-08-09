@@ -35,6 +35,29 @@ To revise the plan:
 
 A portion change is one line in a meal's `components`; totals are derived.
 
+### Starting or restarting the program
+
+Day 1 is the top-level **`programStart`** date, outside `versions`. Move that one date and the whole program restarts: the day and week counters, the earliest day you can step back to, the week screen, and the loads. Old versions keep the `effectiveFrom` dates on which they were really in force, so a restart never rewrites history.
+
+Sessions logged before `programStart` stay on the record and still export, but they no longer set today's load: a restart resumes from each exercise's `startWeight`, not from where the last block left off.
+
+`programStart` may be in the future. Until it arrives the header reads *Starts Monday, Aug 10* rather than counting down from day zero, while the current `effectiveFrom` version already governs what you eat — so a new menu can take effect the evening before the block it belongs to.
+
+### Meals that change by weekday
+
+`meals` holds the blocks eaten every day. **`weekdays`** overrides them by day number (`"1"` = Monday), and carries that day's `calorieTarget`, `proteinTarget`, and any day-specific `mealModifiers`:
+
+- `"dinner": { "add": [ ... ] }` puts the day's own items at the front of the block, ahead of the fixed sides.
+- `"dinner": { "components": [ ... ] }` replaces the block outright, for a restaurant meal where the fixed sides are not eaten at all. Add `"estimate": true` and the app labels it as approximate.
+
+Meal **ids** are the five CSV columns and must stay `breakfast, lunch, snack, dinner, dessert`; the `name` shown on screen is free to change. Each meal's `hour` is when the app starts prompting for it.
+
+Protein has two numbers, and they are not the same: `targets.proteinWeeklyAvg` is the goal (a **weekly average**, judged on the This week screen) and each weekday's `proteinTarget` is what that day is actually built to deliver. No single day is expected to hit the weekly number.
+
+### Progression per exercise
+
+Beyond `increment`, an exercise may set `taperAbove` + `taperIncrement` (climb in big jumps until the bar gets heavy, then smaller ones) and its own `roundToNearest`, which is what makes a 2.5 lb press increment survive instead of rounding back into a 5. `goal`, `goalWeeks`, `startLabel`, `goalLabel`, `rest`, and `scheme` are description only; they render on the Reference tab and never affect a suggestion.
+
 ## Structure
 
 ```
@@ -67,11 +90,13 @@ Grindy exists because it cannot be inferred. All the reps were completed, so the
 
 ## Starting weights
 
-Each exercise in `config/plan.json` carries a `startWeight`. It is what the logger prefills the first time that lift appears, before there is any history to progress from. After the first session, history wins and the seed is ignored.
+Each exercise in `config/plan.json` carries a `startWeight`. It is what the logger prefills the first time that lift appears, before there is any history to progress from. After the first session, history wins and the seed is ignored — history from the current program, that is: a session logged before `programStart` belongs to a previous block and does not carry into this one.
 
 ## Meals
 
 Four states: **ate the planned meal**, **ate something similar**, **ate off-plan**, **skipped**. Off-plan means food that was eaten but departed from the plan (low protein, heavy carbs, restaurant). It counts toward the day's calories and protein, because a meal was eaten, but it does not count toward meal adherence, which is the number the weekly recommendation acts on.
+
+Dinner changes by weekday, so the Today screen shows the day's own dinner and the day's own calorie and protein targets. Add-ons under the meals (creatine, the pre-training carb on lift days, the weekend whey shake) are ticked on the days you take them; a zero-calorie one is tracked for adherence only.
 
 ## Tests
 
@@ -81,7 +106,9 @@ node tests/logic.test.mjs
 
 Covers the brief's acceptance criteria that are computable: trend slope vs independent least squares, A/B alternation after a missed Monday, which lift a day is on once a workout has been started on it, miss attribution (over-reach never triggers deload), CSV export/import round-trip, per-`planVersion` history valuation, phase overrides, the recommendation ladder, the set marks (including that a grindy session breaks a miss streak), seeded start loads, and off-plan meals counting calories without counting adherence.
 
-There is also a browser-level test for the things no pure-logic test can show: that a day logged while viewing a past date is written to that date rather than today, that a logged workout stays reachable on a day the calendar does not offer a lift, and that the training button opens the lift it names. It needs Chrome and a local server; see the header of the file for the exact commands.
+The engine cases run against the plan shape they were written for; the live `config/plan.json` gets its own section, which checks the shipped plan rather than the code: that eating the plan produces the day totals the plan document itself prints, that the week averages to the numbers it claims, that the weekend shake is offered Friday to Sunday only, that every exercise carries a start load and a goal, and that walking each lift week by week from its start load actually arrives at its goal in roughly the stated number of weeks. That last one is a check on the plan's arithmetic, not the app's: an increment that can never reach its target fails here.
+
+There is also a browser-level test for the things no pure-logic test can show: that a day logged while viewing a past date is written to that date rather than today, that a logged workout stays reachable on a day the calendar does not offer a lift, and that the training button opens the lift it names. It needs Chrome and a local server; see the header of the file for the exact commands. It pins the page clock (`TRACKER_FAKE_NOW`) so it does not depend on today being a convenient day of the program, and bypasses the service worker so it always grades the code on disk rather than a cached build.
 
 ```
 node tests/backfill.browser.mjs

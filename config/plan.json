@@ -1,4 +1,6 @@
 {
+  "programStart": "2026-08-10",
+
   "versions": [
     {
       "planVersion": 3,
@@ -249,6 +251,187 @@
       },
 
       "restGuidance": "Rest 3 min on the first lift, 2–3 min on the second, 90 s on paired accessories.",
+
+      "progression": {
+        "onAllRepsCompleted": "increment",
+        "onHit": "increment",
+        "onGrindy": "repeat",
+        "onMiss": "repeat",
+        "consecutiveMissesBeforeDeload": 2,
+        "deloadFactor": 0.9,
+        "roundToNearest": 5,
+        "layoffDays": 10,
+        "layoffFactor": 0.9
+      },
+
+      "phases": [
+        { "weeks": [1, 2], "stepTarget": 6500,
+          "scheduleOverrides": { "2": { "type": "walk", "minutes": 30 },
+                                 "5": { "type": "rest", "suppressed": true } },
+          "note": "Loads deliberately light" },
+        { "weeks": [3, 4], "stepTarget": 8000,
+          "scheduleOverrides": { "5": { "type": "rest", "suppressed": true } } }
+      ]
+    },
+
+    {
+      "planVersion": 5,
+      "effectiveFrom": "2026-08-09",
+      "label": "Rev 4 — restart, weekday dinners, weekly protein average",
+
+      "targets": {
+        "proteinWeeklyAvg": 180,
+        "calorieDailyTarget": 2275,
+        "satFatBudget": 19,
+        "stepTarget": 9000,
+        "sleepTargetMinutes": 450,
+        "weightStart": 220,
+        "weightGoal": 195,
+        "waistIntervalDays": 14,
+        "zone2HrRange": [105, 125]
+      },
+
+      "dayTypes": {
+        "lift":   { "calorieTarget": 2275, "mealModifiers": ["creatine", "preworkoutCarb"] },
+        "cardio": { "calorieTarget": 2275, "mealModifiers": ["creatine"] },
+        "walk":   { "calorieTarget": 2275, "mealModifiers": ["creatine"] },
+        "rest":   { "calorieTarget": 2275, "mealModifiers": ["creatine"] }
+      },
+
+      "meals": [
+        {
+          "id": "breakfast",
+          "name": "Coffee",
+          "hour": 10,
+          "components": [
+            { "name": "Coffee + whole milk + psyllium, 1 tsp", "cal": 65, "protein": 1 }
+          ]
+        },
+        {
+          "id": "lunch",
+          "name": "Midday meal",
+          "hour": 12,
+          "components": [
+            { "name": "¾ c dry oats",              "cal": 225, "protein": 8 },
+            { "name": "1 c unsweetened soy milk",   "cal": 80,  "protein": 7 },
+            { "name": "1 tbsp ground flaxseed",     "cal": 37,  "protein": 2 },
+            { "name": "1 c blueberries",            "cal": 84,  "protein": 1 },
+            { "name": "1½ c 0% Greek yogurt",       "cal": 195, "protein": 35 },
+            { "name": "5 walnut halves",            "cal": 65,  "protein": 2 }
+          ]
+        },
+        {
+          "id": "snack",
+          "name": "Afternoon snack",
+          "hour": 14,
+          "components": [
+            { "name": "1½ c 2% cottage cheese",     "cal": 270, "protein": 36 },
+            { "name": "1 banana or other fruit",    "cal": 105, "protein": 1 }
+          ]
+        },
+        {
+          "id": "dinner",
+          "name": "Dinner",
+          "hour": 18,
+          "components": [
+            { "name": "4 oz potato or ¾ c farro",   "cal": 160, "protein": 4 },
+            { "name": "2 c veg + 2 tbsp olive oil", "cal": 320, "protein": 4 }
+          ]
+        },
+        {
+          "id": "dessert",
+          "name": "Dessert",
+          "hour": 19,
+          "components": [
+            { "name": "½ oz 85% dark chocolate",    "cal": 85,  "protein": 1 }
+          ]
+        }
+      ],
+
+      "weekdays": {
+        "1": { "name": "Monday", "calorieTarget": 2156, "proteinTarget": 155,
+               "meals": { "dinner": { "add": [ { "name": "Salmon, 8 oz", "cal": 465, "protein": 53 } ] } } },
+        "2": { "name": "Tuesday", "calorieTarget": 2111, "proteinTarget": 182,
+               "meals": { "dinner": { "add": [ { "name": "Chicken breast, 9 oz", "cal": 420, "protein": 80 } ] } } },
+        "3": { "name": "Wednesday", "calorieTarget": 2111, "proteinTarget": 182,
+               "meals": { "dinner": { "add": [ { "name": "Chicken breast, 9 oz", "cal": 420, "protein": 80 } ] } } },
+        "4": { "name": "Thursday", "calorieTarget": 2181, "proteinTarget": 162,
+               "meals": { "dinner": { "add": [ { "name": "Lean beef 90/10, 8 oz", "cal": 490, "protein": 60 } ] } } },
+        "5": { "name": "Friday", "calorieTarget": 2231, "proteinTarget": 164,
+               "mealModifiers": ["weekendShake"],
+               "meals": { "dinner": { "name": "Dinner out", "estimate": true,
+                 "components": [ { "name": "Burrito bowl — chicken, rice, beans, guac", "cal": 900, "protein": 45 } ] } } },
+        "6": { "name": "Saturday", "calorieTarget": 2431, "proteinTarget": 164,
+               "mealModifiers": ["weekendShake"],
+               "meals": { "dinner": { "name": "Dinner out", "estimate": true,
+                 "components": [ { "name": "Burger + fries, restaurant single", "cal": 1100, "protein": 45 } ] } } },
+        "0": { "name": "Sunday", "calorieTarget": 2331, "proteinTarget": 149,
+               "mealModifiers": ["weekendShake"],
+               "meals": { "dinner": { "name": "Dinner out", "estimate": true,
+                 "components": [ { "name": "Thai — curry or noodle + rice", "cal": 1000, "protein": 30 } ] } } }
+      },
+
+      "mealModifiers": [
+        { "id": "creatine", "label": "Creatine, 3–5 g in water",
+          "cal": 0, "protein": 0, "optional": true },
+        { "id": "preworkoutCarb", "label": "Pre-training carb (½ c rice or fruit)",
+          "cal": 110, "protein": 2, "optional": true },
+        { "id": "weekendShake", "label": "Whey, 1 scoop in water",
+          "cal": 120, "protein": 25, "optional": true }
+      ],
+
+      "dietNotes": [
+        "Protein is a weekly average, not a daily target. The two chicken days bank the surplus that carries the weekend.",
+        "Cottage cheese once a day, 1½ cups, never more. Do not close a protein gap with a second serving.",
+        "Greek yogurt stays at 1½ cups in the midday meal.",
+        "No honey. The fruit already sweetens the cottage cheese.",
+        "Psyllium goes in the coffee with a full glass of water, at least 2 hours from any medication.",
+        "Creatine 3–5 g daily in water. Zero calories, tracked as adherence only.",
+        "Saturated fat budget ~19 g/day. Weekdays run well under it; the weekend meals are the exposure. Do not stack a burger and a coconut curry back to back.",
+        "Soluble fiber is doing the LDL work: oats, psyllium, flaxseed, beans, soy. Keep them in.",
+        "Salmon once a week and olive oil as the main fat are deliberate lipid choices.",
+        "Restaurant estimates are ±20%. Order protein-forward: double meat in the bowl, a bigger patty, a meat dish over mostly noodles.",
+        "If the weekly protein average runs short, fix it at the restaurant or with a second weekend shake. Not with more cottage cheese.",
+        "Day totals exclude the optional pre-training carb; tick it on the days you take it."
+      ],
+
+      "schedule": {
+        "1": { "type": "lift",   "rotation": "AB", "label": "Lift A" },
+        "2": { "type": "cardio", "mode": "zone2",     "minutes": 40 },
+        "3": { "type": "walk",   "minutes": 75, "optional": true },
+        "4": { "type": "lift",   "rotation": "AB", "label": "Lift B" },
+        "5": { "type": "cardio", "mode": "intervals", "minutes": 35,
+               "prescription": "4 × 4 min hard / 3 min easy" },
+        "6": { "type": "cardio", "mode": "zone2",     "minutes": 60 },
+        "0": { "type": "rest" }
+      },
+
+      "zone2Guidance": "Bike, rower, or steep-incline treadmill walk while over 200 lb.",
+
+      "sessions": {
+        "liftA": {
+          "name": "Lift A",
+          "day": "Monday",
+          "exercises": [
+            { "id": "deadlift", "name": "Conventional deadlift", "sets": 3, "reps": 5,  "increment": 10, "taperAbove": 235, "taperIncrement": 5, "unit": "lb", "rest": "2–3 min", "startWeight": 185, "goal": 275, "goalWeeks": 14 },
+            { "id": "bench",    "name": "Barbell bench press",   "sets": 3, "reps": 5,  "increment": 5,  "unit": "lb", "rest": "2–3 min", "startWeight": 115, "goal": 185, "goalWeeks": 16 },
+            { "id": "csrow",    "name": "Chest-supported row",   "sets": 3, "reps": 8,  "increment": 5,  "unit": "lb", "rest": "90 s", "pair": "3", "startWeight": 95, "goal": 155, "goalWeeks": 12 },
+            { "id": "facepull", "name": "Face pull",             "sets": 2, "reps": 15, "increment": 5,  "unit": "lb", "rest": "60 s", "pair": "3", "startWeight": 30, "goal": 55, "goalWeeks": 8, "incrementNote": "+5 as able" },
+            { "id": "farmer",   "name": "Farmer's carry",        "sets": 3, "reps": 1,  "increment": 10, "unit": "lb ea", "rest": "as needed", "type": "carry", "scheme": "3 × 40 yd", "startWeight": 60, "startLabel": "60 / hand", "goal": 100, "goalLabel": "100 / hand", "goalWeeks": 8 }
+          ]
+        },
+        "liftB": {
+          "name": "Lift B",
+          "day": "Thursday",
+          "exercises": [
+            { "id": "squat",    "name": "Low-bar back squat",      "sets": 3, "reps": 5,  "increment": 5, "unit": "lb", "rest": "3 min", "startWeight": 135, "goal": 225, "goalWeeks": 18 },
+            { "id": "ohp",      "name": "Overhead press",          "sets": 3, "reps": 5,  "increment": 5, "taperAbove": 80, "taperIncrement": 2.5, "roundToNearest": 2.5, "unit": "lb", "rest": "2–3 min", "startWeight": 75, "goal": 115, "goalWeeks": 16 },
+            { "id": "chinup",   "name": "Chin-up or lat pulldown", "sets": 3, "reps": 8,  "increment": 5, "unit": "lb", "rest": "90 s", "pair": "3", "startWeight": 90, "startLabel": "BW / 90", "goalLabel": "BW × 5 clean", "goalWeeks": 14, "incrementNote": "+1 rep or +5 lb" },
+            { "id": "legcurl",  "name": "Seated or lying leg curl", "sets": 3, "reps": 12, "increment": 5, "unit": "lb", "rest": "90 s", "pair": "3", "startWeight": 75, "goal": 120, "goalWeeks": 8, "incrementNote": "+5–10 as able" },
+            { "id": "suitcase", "name": "Suitcase carry or plank", "sets": 3, "reps": 1,  "increment": 10, "unit": "lb ea", "rest": "as needed", "type": "carry", "scheme": "3 per side", "startWeight": 45, "startLabel": "45 / side", "goal": 70, "goalLabel": "70 / side", "goalWeeks": 6 }
+          ]
+        }
+      },
 
       "progression": {
         "onAllRepsCompleted": "increment",

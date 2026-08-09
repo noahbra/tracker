@@ -126,13 +126,13 @@ const EMDASH = '—';
 
 function demoData() {
   const records = {};
-  const start = '2026-07-13';
+  const start = L.programStart(state.configDoc);
   const weights = [221.2, 220.6, 220.9, 220.1, 219.8, 220.3, 219.4, 219.6, 218.9, 219.2, 218.4, 218.7, 218.0, 218.3, 217.6, 217.9, 217.2, 217.4];
   for (let i = 0; i < weights.length; i++) {
     const d = L.addDays(start, i);
     if (d > todayStr()) break;
     const r = {
-      date: d, schemaVersion: 1, planVersion: 3,
+      date: d, schemaVersion: 1, planVersion: L.configFor(state.configDoc, d).planVersion,
       weight: weights[i],
       sleepMinutes: 420 + (i * 7) % 60,
       steps: 5200 + (i * 731) % 4500,
@@ -145,9 +145,9 @@ function demoData() {
       const sessionId = L.nextLiftId(records);
       const exs = L.configFor(state.configDoc, d).sessions[sessionId].exercises;
       const sets = {};
-      const base = { trapbar: 185, bench: 135, csrow: 90, facepull: 40, farmer: 70, squat: 155, ohp: 85, chinup: 0, rdl: 135, suitcase: 60 };
       for (const ex of exs) {
-        for (let s = 0; s < ex.sets; s++) sets[`${ex.id}:${s}`] = { weight: base[ex.id] + Math.floor(i / 7) * 5, reps: ex.reps };
+        const base = ex.startWeight != null ? ex.startWeight : 50;
+        for (let s = 0; s < ex.sets; s++) sets[`${ex.id}:${s}`] = { weight: base + Math.floor(i / 7) * 5, reps: ex.reps };
       }
       r.workout = { sessionId, sets, minutes: 52 + (i % 3) * 3, completedAt: `${d}T07:40:00` };
     } else if ((plan.type === 'cardio' || plan.type === 'walk') && !plan.suppressed && i % 7 !== 5) {
@@ -158,13 +158,13 @@ function demoData() {
   // today: partial — weight logged, breakfast eaten, rest open
   const t = todayStr();
   records[t] = {
-    date: t, schemaVersion: 1, planVersion: 3,
+    date: t, schemaVersion: 1, planVersion: L.configFor(state.configDoc, t).planVersion,
     weight: 217.4, sleepMinutes: 462, steps: 5832,
     meals: { breakfast: 'eaten' }, modifiers: {},
   };
   const measurements = [
-    { id: 'demo-w1', takenAt: '2026-07-13T07:00:00', kind: 'waist', value: 42.0, schemaVersion: 1 },
-    { id: 'demo-r1', takenAt: '2026-07-19T08:00:00', kind: 'restingHr', value: 63, schemaVersion: 1 },
+    { id: 'demo-w1', takenAt: `${start}T07:00:00`, kind: 'waist', value: 42.0, schemaVersion: 1 },
+    { id: 'demo-r1', takenAt: `${L.addDays(start, 6)}T08:00:00`, kind: 'restingHr', value: 63, schemaVersion: 1 },
   ];
   return { records, measurements };
 }
@@ -252,7 +252,7 @@ function renderToday() {
       </div>
       <button class="settings-link" data-act="sheet" data-sheet="settings">Settings</button>
     </div>
-    <div class="sub num">Day ${day} · Week ${week} · ${toGo != null ? toGo.toFixed(1) : EMDASH} lb to go</div>
+    <div class="sub num">${day < 1 ? `Starts ${startLabel()}` : `Day ${day} · Week ${week}`} · ${toGo != null ? toGo.toFixed(1) : EMDASH} lb to go</div>
     ${isToday() ? '' : `<button class="backfill-flag" data-act="day-today">Filling in a past day ${EMDASH} back to today</button>`}
     <div class="gauge" role="img" aria-label="${gauge.filter((g) => g.done).length} of 6 logged">
       ${gauge.map((g) => `<div class="seg${g.done ? ' done' : ''}" title="${g.label}"></div>`).join('')}
@@ -273,7 +273,7 @@ function renderToday() {
     if (offered.kind === 'cardio' || offered.kind === 'walk') nm += ` ${offered.minutes} min`;
     focusLines.push(`${EMDASH} ${esc(nm)}${offered.pushedFrom ? ` <span class="num">(pushed from ${offered.pushedFrom})</span>` : ''}`);
   }
-  focusLines.push(`${EMDASH} Eat <span class="num">${fmtInt(plan.calorieTarget)}</span> cal · <span class="num">${plan.proteinFloor}</span> g protein`);
+  focusLines.push(`${EMDASH} Eat <span class="num">${fmtInt(plan.calorieTarget)}</span> cal · <span class="num">${plan.proteinTarget}</span> g protein`);
   if (rec.steps == null) focusLines.push(`${EMDASH} Walk <span class="num">${fmtInt(plan.stepTarget)}</span> steps`);
   else if (stepsLeft > 0) focusLines.push(`${EMDASH} Walk <span class="num">${fmtInt(stepsLeft)}</span> more steps`);
   html += `<section class="card focus" id="sec-focus">
@@ -315,7 +315,7 @@ function renderToday() {
   const sleepPct = rec.sleepMinutes != null ? Math.min(1, rec.sleepMinutes / plan.sleepTargetMinutes) : 0;
   const stepPct = Math.min(1, (rec.steps || 0) / plan.stepTarget);
   const calPct = Math.min(1, nut.cal / plan.calorieTarget);
-  const proPct = Math.min(1, nut.protein / plan.proteinFloor);
+  const proPct = Math.min(1, nut.protein / plan.proteinTarget);
   html += `<div class="tiles" id="sec-tiles">
     <button class="tile" data-act="sheet" data-sheet="steps">
       <span class="label">Steps</span>
@@ -338,7 +338,7 @@ function renderToday() {
     <div class="tile">
       <span class="label">Protein</span>
       <div class="value num">${fmtInt(nut.protein)} g</div>
-      <div class="of num">of ${plan.proteinFloor} g</div>
+      <div class="of num">of ${plan.proteinTarget} g today</div>
       <div class="bar"><div class="fill" style="width:${(proPct * 100).toFixed(1)}%"></div></div>
     </div>
   </div>`;
@@ -361,6 +361,13 @@ function renderToday() {
   html += renderCheckin(rec);
 
   document.getElementById('view-today').innerHTML = html;
+}
+
+// Day 1 can be in the future: a plan is written before the block it starts.
+// "Day 0 · Week 0" reads as a bug, so name the date the program begins instead.
+function startLabel() {
+  return L.parseDate(L.programStart(state.configDoc))
+    .toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 }
 
 function lastWeightSub() {
@@ -501,12 +508,12 @@ function workoutSummary(rec, session) {
 
 function renderMeals(rec, plan, config) {
   let rows = '';
-  for (const meal of config.meals) {
+  for (const meal of L.mealsFor(config, viewStr())) {
     const st = rec.meals[meal.id];
     const total = L.mealTotal(meal);
     let sub;
     if (st === 'eaten' || st === 'modified' || st === 'offplan') {
-      const tag = st === 'modified' ? ' · similar' : st === 'offplan' ? ' · off-plan' : '';
+      const tag = st === 'modified' ? ' · similar' : st === 'offplan' ? ' · off-plan' : meal.estimate ? ' · estimate' : '';
       sub = `<div class="meal-sub macro num">${total.cal} cal · ${total.protein} g protein${tag}</div>`;
     } else if (st === 'skipped') {
       sub = `<div class="meal-sub">Skipped</div>`;
@@ -529,9 +536,12 @@ function renderMeals(rec, plan, config) {
     if (!mod) continue;
     if (mod.optional) {
       const on = !!rec.modifiers[mod.id];
+      // A zero-calorie item (creatine) is tracked for adherence only, so
+      // hanging "0 cal" off it would be noise on every row, every day.
+      const cost = mod.cal ? `, <span class="num">${mod.cal}</span> cal` : '';
       mods += `<button class="modifier-row${on ? ' on' : ''}" data-act="mod-toggle" data-mod="${mod.id}">
         <span class="box"></span>
-        <span class="mlabel">+ ${esc(mod.label)}, <span class="num">${mod.cal}</span> cal</span>
+        <span class="mlabel">+ ${esc(mod.label)}${cost}</span>
       </button>`;
     } else {
       mods += `<div class="modifier-row"><span class="mlabel">${esc(mod.label)} (<span class="num">${mod.cal}</span> cal) ${EMDASH} applied automatically</span></div>`;
@@ -616,13 +626,23 @@ function renderWeek() {
     ${trendPlotSvg(state.records, t)}
   </section>`;
 
+  // Protein is the plan's one governing number and it is a WEEKLY average, so
+  // the week screen is where it is judged. The daily tile can read short on a
+  // salmon Monday and the week can still be exactly on plan.
+  const wkPlan = L.dayPlan(state.configDoc, t);
+  const proGoal = wkPlan.proteinWeeklyAvg;
+  const proMet = stats.avgProtein != null && stats.avgProtein >= proGoal - 5;
   html += `<section class="card"><span class="label">This week</span>
     <div class="metric-grid">
       <div><span class="num">${stats.mealAdherence != null ? Math.round(stats.mealAdherence * 100) + '%' : EMDASH}</span><span class="label">Meal adherence</span></div>
       <div><span class="num">${stats.sessionsDone} / ${stats.sessionsPlanned}</span><span class="label">Sessions</span></div>
+      <div><span class="num${proMet ? ' good' : ''}">${stats.avgProtein != null ? `${fmtInt(stats.avgProtein)} g` : EMDASH}</span><span class="label">Avg protein</span></div>
+      <div><span class="num">${stats.avgCalories != null ? fmtInt(stats.avgCalories) : EMDASH}</span><span class="label">Avg calories</span></div>
       <div><span class="num">${stats.avgSteps != null ? fmtInt(stats.avgSteps) : EMDASH}</span><span class="label">Avg steps</span></div>
       <div><span class="num">${stats.avgSleep != null ? fmtSleep(stats.avgSleep) : EMDASH}</span><span class="label">Avg sleep</span></div>
-    </div></section>`;
+    </div>
+    <div class="ref-note">Protein is judged here, as a weekly average: aim ${proGoal} g. Weekday dinners bank the surplus that covers the weekend.${stats.nutritionDays ? ` Averaged over ${stats.nutritionDays} logged day${stats.nutritionDays > 1 ? 's' : ''}.` : ''}</div>
+  </section>`;
 
   html += `<section class="card"><span class="label">Recommendation</span>
     <div class="recommendation">${esc(rec7)}</div>
@@ -651,12 +671,36 @@ const DAY_FULL = { 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 
 const MEASURE_LABELS = { waist: 'Waist, in', restingHr: 'Resting HR, bpm', bloodPressure: 'Blood pressure', grip: 'Grip, lb' };
 
 function describeSched(entry, config) {
-  if (entry.type === 'lift') return 'Lift — A/B alternating';
+  if (entry.type === 'lift') return `${entry.label || 'Lift'} — A/B alternating`;
   if (entry.type === 'rest') return 'Rest';
   if (entry.type === 'walk') return `Walk · ${entry.minutes} min${entry.optional ? ' · optional' : ''}`;
   if (entry.mode === 'intervals') return `Intervals · ${entry.minutes} min · ${entry.prescription || ''}`;
   const [lo, hi] = config.targets.zone2HrRange;
   return `Zone 2 · ${entry.minutes} min · HR ${lo}–${hi}`;
+}
+
+// Exercise presentation, shared by the Reference tab and the logger. A carry is
+// not sets × reps, and a lift whose target is a clean bodyweight chin-up has no
+// number at all, so both come from the plan when it supplies them.
+function exScheme(e) {
+  return e.scheme || `${e.sets} × ${e.reps}`;
+}
+// Where the lift starts and where it is going. The unit is printed once, and
+// only when the plan has not spelled the endpoints out itself ("BW / 90",
+// "60 / hand"), which it does wherever a bare number would be ambiguous.
+function exRange(e) {
+  const start = e.startLabel || (e.startWeight != null ? String(e.startWeight) : EMDASH);
+  const goal = e.goalLabel || (e.goal != null ? String(e.goal) : EMDASH);
+  const unit = !e.startLabel && !e.goalLabel && e.unit ? ` ${e.unit}` : '';
+  return `${start} → ${goal}${unit}`;
+}
+function exProgressionNote(e) {
+  const parts = [];
+  parts.push(e.incrementNote
+    || (e.taperIncrement != null ? `+${e.increment}, then +${e.taperIncrement} over ${e.taperAbove}` : `+${e.increment} ${e.unit}`));
+  if (e.goalWeeks) parts.push(`~${e.goalWeeks} wks`);
+  if (e.pair) parts.push('paired');
+  return parts.join(' · ');
 }
 
 function fmtRefDate(iso) {
@@ -679,30 +723,65 @@ function renderReference() {
       <tr><td>Version</td><td class="num">${config.planVersion} · ${esc(config.label || '')}</td></tr>
       <tr><td>Program start</td><td class="num">${fmtRefDate(L.programStart(state.configDoc))}</td></tr>
       <tr><td>Weight</td><td class="num">${tg.weightStart} → ${tg.weightGoal} lb</td></tr>
-      <tr><td>Protein floor</td><td class="num">${tg.proteinFloor} g / day</td></tr>
+      <tr><td>Protein</td><td class="num">${tg.proteinWeeklyAvg != null ? `${tg.proteinWeeklyAvg} g — weekly average` : `${tg.proteinFloor} g / day`}</td></tr>
+      ${tg.calorieDailyTarget != null ? `<tr><td>Calories</td><td class="num">${fmtInt(tg.calorieDailyTarget)} / day target</td></tr>` : ''}
+      ${tg.satFatBudget != null ? `<tr><td>Saturated fat</td><td class="num">under ${tg.satFatBudget} g / day</td></tr>` : ''}
       <tr><td>Steps</td><td class="num">${fmtInt(tg.stepTarget)} / day (ramped in early weeks)</td></tr>
       <tr><td>Sleep</td><td class="num">${fmtSleep(tg.sleepTargetMinutes)}</td></tr>
     </table></section>`;
 
   // ---- dietary protocol ----
+  // Two tables, because the plan has two halves: blocks that never change, and
+  // a dinner that changes by weekday. Every number is derived from the config,
+  // so a portion edit re-totals the page.
   let mealsHtml = '';
-  let grandCal = 0, grandPro = 0;
+  let fixedCal = 0, fixedPro = 0;
   for (const meal of config.meals) {
     const total = L.mealTotal(meal);
-    grandCal += total.cal; grandPro += total.protein;
+    fixedCal += total.cal; fixedPro += total.protein;
+    const when = meal.hour != null ? `${meal.hour > 12 ? meal.hour - 12 : meal.hour}${meal.hour >= 12 ? 'pm' : 'am'} · ` : '';
     mealsHtml += `<table class="ref-table meal-detail">
-      <tr class="ref-head"><th>${esc(meal.name)}</th><th class="num r">${total.cal} cal · ${total.protein} g</th></tr>
+      <tr class="ref-head"><th>${when}${esc(meal.name)}</th><th class="num r">${total.cal} cal · ${total.protein} g</th></tr>
       ${meal.components.map((c) => `<tr><td>${esc(c.name)}</td><td class="num r">${c.cal} cal · ${c.protein} g</td></tr>`).join('')}
     </table>`;
   }
-  const dtRows = Object.entries(config.dayTypes)
-    .map(([k, v]) => `<tr><td>${k[0].toUpperCase() + k.slice(1)} days</td><td class="num r">${fmtInt(v.calorieTarget)} cal</td></tr>`).join('');
+
+  // Dinner by day, taken from the same weekday overrides the app eats from.
+  let dayRows = '';
+  let weekCal = 0, weekPro = 0, weekN = 0;
+  if (config.weekdays) {
+    for (const wd of DAY_ORDER) {
+      const w = config.weekdays[wd];
+      if (!w) continue;
+      const dinner = L.mealsForWeekday(config, wd).find((m) => m.id === 'dinner');
+      const base = config.meals.find((m) => m.id === 'dinner');
+      const baseIds = new Set(base.components.map((c) => c.name));
+      const shown = dinner.components.filter((c) => !baseIds.has(c.name));
+      const extras = (w.mealModifiers || [])
+        .map((id) => (config.mealModifiers || []).find((m) => m.id === id))
+        .filter((m) => m && m.cal);
+      weekCal += w.calorieTarget; weekPro += w.proteinTarget; weekN++;
+      dayRows += `<tr><td>${DAY_FULL[wd]}
+          <div class="ref-note">${esc(shown.map((c) => c.name).join(' · '))}${extras.length ? ` + ${esc(extras.map((m) => m.label).join(' + '))}` : ''}${dinner.estimate ? ' · estimate' : ''}</div></td>
+        <td class="num r">${fmtInt(w.calorieTarget)} cal<div class="ref-note">${w.proteinTarget} g protein</div></td></tr>`;
+    }
+  }
+
   const modRows = (config.mealModifiers || []).map((m) =>
     `<tr><td>${esc(m.label)}${m.optional ? ' (optional, by choice)' : ' (automatic)'}</td><td class="num r">${m.cal > 0 ? '+' : ''}${m.cal} cal</td></tr>`).join('');
+  const notes = (config.dietNotes || []).map((n) => `<li>${esc(n)}</li>`).join('');
+
   html += `<section class="card"><span class="label">Dietary protocol</span>
-    <table class="ref-table">${dtRows}</table>
+    <span class="label" style="display:block;margin-top:6px">Every day</span>
     ${mealsHtml}
-    <table class="ref-table"><tr class="ref-head"><th>Base plan total</th><th class="num r">${fmtInt(grandCal)} cal · ${grandPro} g</th></tr>${modRows}</table>
+    <table class="ref-table"><tr class="ref-head"><th>Fixed subtotal, before dinner protein</th><th class="num r">${fmtInt(fixedCal)} cal · ${fixedPro} g</th></tr></table>
+    ${dayRows ? `<span class="label" style="display:block;margin-top:14px">Dinner by day</span>
+      <table class="ref-table">${dayRows}</table>` : ''}
+    ${weekN ? `<table class="ref-table"><tr class="ref-head"><th>Weekly average</th><th class="num r">${fmtInt(weekCal / weekN)} cal · ${Math.round(weekPro / weekN)} g</th></tr>
+      <tr><td>Target</td><td class="num r">${tg.calorieDailyTarget != null ? `${fmtInt(tg.calorieDailyTarget)} cal` : EMDASH} · ${tg.proteinWeeklyAvg != null ? tg.proteinWeeklyAvg : tg.proteinFloor} g</td></tr></table>` : ''}
+    <span class="label" style="display:block;margin-top:14px">Add-ons</span>
+    <table class="ref-table">${modRows}</table>
+    ${notes ? `<span class="label" style="display:block;margin-top:14px">How to run it</span><ul class="ref-list">${notes}</ul>` : ''}
   </section>`;
 
   // ---- weekly schedule + phases ----
@@ -715,7 +794,7 @@ function renderReference() {
     for (const [d, o] of Object.entries(p.scheduleOverrides || {})) {
       parts.push(`${DAY_FULL[d]} → ${o.type === 'rest' ? 'rest' : describeSched(o, config).toLowerCase()}`);
     }
-    phasesHtml += `<tr><td>Weeks ${p.weeks.join('–')}</td><td>${esc(parts.join(' · '))}${p.note ? `<div class="ref-note">${esc(p.note)}</div>` : ''}</td></tr>`;
+    phasesHtml += `<tr><td class="nw">Weeks ${p.weeks.join('–')}</td><td>${esc(parts.join(' · '))}${p.note ? `<div class="ref-note">${esc(p.note)}</div>` : ''}</td></tr>`;
   }
   html += `<section class="card"><span class="label">Weekly schedule</span>
     <table class="ref-table">${schedRows}</table>
@@ -724,11 +803,19 @@ function renderReference() {
   </section>`;
 
   // ---- lift sessions ----
+  // Start → goal is the whole point of the table: every load in the plan is a
+  // waypoint between two numbers, and the app can only suggest the next step if
+  // the destination is written down.
   for (const [, session] of Object.entries(config.sessions)) {
-    html += `<section class="card"><span class="label">${esc(session.name)}</span>
+    html += `<section class="card"><span class="label">${esc(session.name)}${session.day ? ` · ${esc(session.day)}` : ''}</span>
       <table class="ref-table">
-        ${session.exercises.map((e) => `<tr><td>${esc(e.name)}${e.pair ? '<div class="ref-note">paired · 90 s rests</div>' : ''}</td>
-          <td class="num r">${e.type === 'carry' ? `${e.sets} × 40 yd` : `${e.sets} × ${e.reps}`}<div class="ref-note">+${e.increment} ${esc(e.unit)}</div></td></tr>`).join('')}
+        <tr class="ref-head"><th>Exercise · start → goal</th><th class="r">Sets × reps</th></tr>
+        ${session.exercises.map((e) => `<tr>
+          <td>${esc(e.name)}
+            <div class="ex-goal num">${esc(exRange(e))}</div>
+            <div class="ref-note">${esc(exProgressionNote(e))}</div></td>
+          <td class="num r">${esc(exScheme(e))}${e.rest ? `<div class="ref-note">rest ${esc(e.rest)}</div>` : ''}</td>
+        </tr>`).join('')}
       </table></section>`;
   }
   if (config.restGuidance) {
@@ -819,9 +906,10 @@ function sheetHtml(sheet) {
       <div class="sheet-actions"><button class="btn ghost" data-act="close-sheet">Cancel</button><button class="btn primary" data-act="save-cardio">Save</button></div>`;
   }
   if (sheet.kind === 'meal') {
-    const meal = config.meals.find((m) => m.id === sheet.mealId);
+    const meal = L.mealsFor(config, t).find((m) => m.id === sheet.mealId);
     const total = L.mealTotal(meal);
     return `<span class="label">Meal</span><h2>${esc(meal.name)} · <span class="num">${total.cal}</span> cal · <span class="num">${total.protein}</span> g</h2>
+      ${meal.estimate ? `<div class="ref-note">Restaurant estimate, ±20%. Order protein-forward.</div>` : ''}
       <ul class="components">${meal.components.map((c) => `<li><span>${esc(c.name)}</span><span class="num">${c.cal} cal · ${c.protein} g</span></li>`).join('')}</ul>
       <button class="option-row" data-act="meal-set" data-meal="${meal.id}" data-state="eaten">Ate the planned meal</button>
       <button class="option-row" data-act="meal-set" data-meal="${meal.id}" data-state="modified">Ate something similar<span class="sub">Counts the same toward totals; tracked separately.</span></button>
@@ -897,7 +985,7 @@ function renderLogger() {
   let prevPair = null;
   for (const e of session.exercises) {
     const prog = L.progression(state.configDoc, prior, e.id, e, t);
-    const scheme = e.type === 'carry' ? `${e.sets} × 40 yd` : `${e.sets} × ${e.reps}`;
+    const scheme = exScheme(e);
     const paired = e.pair != null;
     let rows = '';
     for (let i = 0; i < e.sets; i++) {
@@ -935,7 +1023,7 @@ function renderLogger() {
     </div>`;
     ex += `<div class="exercise${paired ? ' paired' : ''}">
       <div class="ex-head"><span class="name">${esc(e.name)}</span><span class="scheme num">${scheme}</span></div>
-      ${paired && e.pair !== prevPair ? `<div class="pair-tag">Alternate with next · 90 s rests</div>` : ''}
+      ${paired && e.pair !== prevPair ? `<div class="pair-tag">Alternate with next${e.rest ? ` · ${esc(e.rest)} rests` : ''}</div>` : ''}
       ${prog.cue ? `<div class="ex-cue${prog.tone === 'done' ? ' done' : ''}">${esc(prog.cue)}</div>` : ''}
       ${rows}
       ${markRow}
@@ -1263,6 +1351,10 @@ function render() {
 async function boot() {
   const res = await fetch('config/plan.json');
   state.configDoc = await res.json();
+
+  // The demo needs three weeks of history behind it, so it back-dates day 1.
+  // The real plan's start date is never touched; ?demo persists nothing.
+  if (DEMO) state.configDoc = { ...state.configDoc, programStart: L.addDays(todayStr(), -20) };
 
   if (window.caches) {
     try {

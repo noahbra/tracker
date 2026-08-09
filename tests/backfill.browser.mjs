@@ -29,12 +29,39 @@ const evalJs = async (expr) => {
   return r.result?.result?.value;
 };
 
-await send('Page.enable'); await send('Runtime.enable');
-await send('Page.navigate', { url: APP });
-await new Promise((r) => setTimeout(r, 2500));
+await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
+// Test the code on disk, never a previously cached build. Without this the
+// service worker can serve an older app and the run silently grades the wrong
+// thing, which is exactly what a stale cache did during this suite's last edit.
+await send('Network.setBypassServiceWorker', { bypass: true });
 
 const ok = [];
 const check = (name, cond, detail = '') => ok.push({ name, pass: !!cond, detail });
+
+// Pin the page's clock. Every check below needs a date inside the program (a
+// day to step back from, a lift day to find), and the real clock supplies one
+// only some of the time — before day 1 of a new block, none of it can run.
+// Default: Wednesday of week 2, a day the calendar offers no lift, which is
+// what the orphaned-workout check is about.
+const FAKE_NOW = process.env.TRACKER_FAKE_NOW || '2026-08-19T09:30:00';
+await send('Page.addScriptToEvaluateOnNewDocument', {
+  source: `(() => {
+    const Real = Date;
+    const fixed = new Real('${FAKE_NOW}');
+    const D = function (...a) { return a.length ? new Real(...a) : new Real(fixed); };
+    D.now = () => fixed.getTime();
+    D.parse = Real.parse; D.UTC = Real.UTC; D.prototype = Real.prototype;
+    window.Date = D;
+  })();`,
+});
+
+await send('Page.navigate', { url: APP });
+await new Promise((r) => setTimeout(r, 2500));
+
+const pinned = await evalJs(`new Date().toString()`);
+check('clock pinned inside the program', pinned.startsWith('Wed Aug 19 2026'), pinned);
+const headerDay = await evalJs(`document.querySelector('.header .sub').textContent`);
+check('header counts program days', /Day 10 · Week 2/.test(headerDay), headerDay);
 
 // Start clean, on today.
 await evalJs(`localStorage.clear(); location.reload();`);
@@ -83,8 +110,8 @@ await evalJs(`
   const t = (()=>{const d=new Date();const p=n=>String(n).padStart(2,'0');return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());})();
   localStorage.clear();
   localStorage.setItem('tracker.days', JSON.stringify({[t]:{
-    date:t, schemaVersion:1, planVersion:4, meals:{}, modifiers:{},
-    workout:{ sessionId:'liftA', sets:{'trapbar:0':{weight:185,reps:5}}, minutes:50, completedAt: t+'T12:00:00' }
+    date:t, schemaVersion:1, planVersion:5, meals:{}, modifiers:{},
+    workout:{ sessionId:'liftA', sets:{'deadlift:0':{weight:185,reps:5}}, minutes:50, completedAt: t+'T12:00:00' }
   }}));
   location.reload();
 `);
@@ -119,11 +146,11 @@ if (back >= 0) {
   await evalJs(`
     const iso = (d) => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
     const day = new Date(); day.setDate(day.getDate() - ${back});
-    const prior = new Date(day); prior.setDate(prior.getDate() - 14);
-    const blank = (d) => ({ date: iso(d), schemaVersion:1, planVersion:4, meals:{}, modifiers:{} });
+    const prior = new Date(day); prior.setDate(prior.getDate() - 7);
+    const blank = (d) => ({ date: iso(d), schemaVersion:1, planVersion:5, meals:{}, modifiers:{} });
     const days = {};
     // Lift A is the last one completed, so the day should offer Lift B...
-    days[iso(prior)] = { ...blank(prior), workout:{ sessionId:'liftA', sets:{'trapbar:0':{weight:185,reps:5}}, minutes:50, completedAt: iso(prior)+'T12:00:00' } };
+    days[iso(prior)] = { ...blank(prior), workout:{ sessionId:'liftA', sets:{'deadlift:0':{weight:185,reps:5}}, minutes:50, completedAt: iso(prior)+'T12:00:00' } };
     // ...despite the abandoned Lift A shell sitting on it.
     days[iso(day)] = { ...blank(day), workout:{ sessionId:'liftA', sets:{} } };
     localStorage.setItem('tracker.days', JSON.stringify(days));

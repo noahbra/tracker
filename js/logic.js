@@ -49,9 +49,12 @@ export function configByVersion(configDoc, planVersion) {
   );
 }
 
-// Program day 1 = the earliest effectiveFrom in the config document.
+// Program day 1. An explicit top-level `programStart` wins, so restarting the
+// program is one date in one place; without it, day 1 falls back to the
+// earliest effectiveFrom. A restart must not require back-dating old versions,
+// which would misstate when they were actually in force.
 export function programStart(configDoc) {
-  return configDoc.versions
+  return configDoc.programStart || configDoc.versions
     .map((v) => v.effectiveFrom)
     .sort()[0];
 }
@@ -68,6 +71,39 @@ export function phaseFor(config, week) {
   return (config.phases || []).find((p) => p.weeks.includes(week)) || null;
 }
 
+// The weekday entry for a date: per-day calorie/protein targets, dinner
+// overrides, day-specific modifiers. Absent on plans whose menu is the same
+// every day, so every caller must tolerate {}.
+export function weekdayPlan(config, dateStr) {
+  return (config.weekdays || {})[String(weekday(dateStr))] || {};
+}
+
+// The meals eaten on a given weekday: the fixed daily blocks with that day's
+// override applied. `add` puts the day's own items at the FRONT of the block
+// (the weekday dinner protein, ahead of the fixed sides) because the thing that
+// changes daily is the thing worth reading first, and every preview of a meal
+// shows its opening components. `components` replaces the block outright (a
+// restaurant dinner, where the fixed sides are not eaten at all). Keyed by
+// weekday so the Reference tab, which describes the plan rather than any
+// particular date, can use it too.
+export function mealsForWeekday(config, wd) {
+  const ov = ((config.weekdays || {})[String(wd)] || {}).meals;
+  if (!ov) return config.meals;
+  return config.meals.map((m) => {
+    const o = ov[m.id];
+    if (!o) return m;
+    const out = { ...m, ...o };
+    out.components = o.components || m.components;
+    if (o.add) out.components = [...o.add, ...out.components];
+    delete out.add;
+    return out;
+  });
+}
+
+export function mealsFor(config, dateStr) {
+  return mealsForWeekday(config, weekday(dateStr));
+}
+
 // The day's plan: schedule entry (with phase overrides), day type, targets.
 export function dayPlan(configDoc, dateStr) {
   const config = configFor(configDoc, dateStr);
@@ -82,6 +118,13 @@ export function dayPlan(configDoc, dateStr) {
     sched = { ...o };
   }
   const dt = config.dayTypes[sched.type] || config.dayTypes.rest;
+  const wdp = weekdayPlan(config, dateStr);
+  // Protein is a weekly average, so the day target and the weekly target are
+  // two different numbers and must never be collapsed: no single day is
+  // supposed to hit 180 g, the week is.
+  const weeklyProtein = config.targets.proteinWeeklyAvg != null
+    ? config.targets.proteinWeeklyAvg
+    : config.targets.proteinFloor;
   return {
     config,
     week,
@@ -89,11 +132,13 @@ export function dayPlan(configDoc, dateStr) {
     schedule: sched,
     type: sched.type,
     suppressed,
-    calorieTarget: dt.calorieTarget,
-    mealModifiers: dt.mealModifiers || [],
+    calorieTarget: wdp.calorieTarget != null ? wdp.calorieTarget : dt.calorieTarget,
+    mealModifiers: [...(dt.mealModifiers || []), ...(wdp.mealModifiers || [])],
     stepTarget: (phase && phase.stepTarget) || config.targets.stepTarget,
     sleepTargetMinutes: config.targets.sleepTargetMinutes,
-    proteinFloor: config.targets.proteinFloor,
+    proteinTarget: wdp.proteinTarget != null ? wdp.proteinTarget : weeklyProtein,
+    proteinWeeklyAvg: weeklyProtein,
+    proteinFloor: weeklyProtein,
   };
 }
 
@@ -118,7 +163,7 @@ export function dayNutrition(configDoc, record) {
     const s = record.meals && record.meals[id];
     return s === 'eaten' || s === 'modified' || s === 'offplan';
   };
-  for (const meal of config.meals) {
+  for (const meal of mealsFor(config, record.date)) {
     if (ate(meal.id)) {
       const t = mealTotal(meal);
       cal += t.cal;
@@ -334,11 +379,34 @@ function roundTo(v, step) {
   return Math.round(v / step) * step;
 }
 
+// Rounding is per-exercise where the plan calls for smaller jumps than the bar
+// math elsewhere allows: a 2.5 lb press increment rounded to the nearest 5
+// silently becomes a 5 lb increment.
+function roundStep(exCfg, p) {
+  return exCfg.roundToNearest != null ? exCfg.roundToNearest : p.roundToNearest;
+}
+
+// The jump to add after a successful session. Some lifts taper: the deadlift
+// climbs 10 lb a week until it gets heavy, then 5. `taperAbove` is the load at
+// which the smaller increment takes over.
+function incrementFor(exCfg, load, p) {
+  if (exCfg.taperAbove != null && exCfg.taperIncrement != null && load >= exCfg.taperAbove) {
+    return exCfg.taperIncrement;
+  }
+  return exCfg.increment != null ? exCfg.increment : p.roundToNearest;
+}
+
 // Returns { suggested, cue, tone } — suggestion only, never enforced.
 export function progression(configDoc, records, exerciseId, exCfg, todayStr) {
   const config = configFor(configDoc, todayStr);
   const p = config.progression;
-  const hist = exerciseHistory(records, exerciseId);
+  const step = roundStep(exCfg, p);
+  // Loads restart when the program restarts. Sessions from a previous block
+  // are kept (they are still history, still exported) but they no longer set
+  // today's load, or a restart would silently resume at the old weights
+  // instead of the plan's seeded start loads.
+  const hist = exerciseHistory(records, exerciseId)
+    .filter((s) => s.date >= programStart(configDoc));
 
   // No history: the seeded start load from the plan. A blank field asks the
   // user to invent a number at the moment they are least able to judge it.
@@ -346,7 +414,7 @@ export function progression(configDoc, records, exerciseId, exCfg, todayStr) {
     if (exCfg.startWeight == null) return { suggested: null, cue: null, tone: 'none' };
     return {
       suggested: exCfg.startWeight,
-      cue: `Starting weight — ${exCfg.startWeight} ${exCfg.unit}`,
+      cue: `Starting weight — ${exCfg.startLabel || `${exCfg.startWeight} ${exCfg.unit}`}`,
       tone: 'neutral',
     };
   }
@@ -368,7 +436,7 @@ export function progression(configDoc, records, exerciseId, exCfg, todayStr) {
   // Layoff: long gap since this exercise was last performed.
   const gap = daysBetween(last.date, todayStr);
   if (gap > p.layoffDays && lastSuccess !== null) {
-    const suggested = roundTo(lastSuccess * p.layoffFactor, p.roundToNearest);
+    const suggested = roundTo(lastSuccess * p.layoffFactor, step);
     return {
       suggested,
       cue: `It's been ${gap} days — start at ${suggested} ${exCfg.unit}`,
@@ -390,7 +458,7 @@ export function progression(configDoc, records, exerciseId, exCfg, todayStr) {
   }
 
   if (lastSuccess !== null && misses >= p.consecutiveMissesBeforeDeload) {
-    const suggested = roundTo(lastSuccess * p.deloadFactor, p.roundToNearest);
+    const suggested = roundTo(lastSuccess * p.deloadFactor, step);
     return {
       suggested,
       cue: `${misses} misses — drop to ${suggested} ${exCfg.unit} and rebuild`,
@@ -407,8 +475,7 @@ export function progression(configDoc, records, exerciseId, exCfg, todayStr) {
   }
 
   if (lastOutcome === 'hit') {
-    const inc = exCfg.increment != null ? exCfg.increment : p.roundToNearest;
-    const suggested = roundTo(lastLoad + inc, p.roundToNearest);
+    const suggested = roundTo(lastLoad + incrementFor(exCfg, lastLoad, p), step);
     return {
       suggested,
       cue: `All reps hit last time — go ${suggested} ${exCfg.unit}`,
@@ -429,7 +496,7 @@ export function dayGauge(configDoc, records, dateStr) {
   const rec = records[dateStr] || {};
   const plan = dayPlan(configDoc, dateStr);
   const offered = offeredSession(configDoc, records, dateStr);
-  const mealsCfg = configFor(configDoc, dateStr).meals;
+  const mealsCfg = mealsFor(configFor(configDoc, dateStr), dateStr);
   const allMeals = mealsCfg.every((m) => rec.meals && rec.meals[m.id]);
   const trainingDone =
     offered.kind === 'rest' ||
@@ -490,11 +557,14 @@ export function nextAction(configDoc, records, measurements, dateStr, hour, expo
     return { id: 'training', label: `${offered.kind === 'lift' ? 'Start ' : ''}${name}` };
   }
 
-  // Next meal by time of day.
+  // Next meal by time of day. The hour a block is eaten belongs to the plan,
+  // not to the app: a 10am coffee and a noon oat bowl are the plan's own times.
   const mealHours = { breakfast: 6, lunch: 11, snack: 14, dinner: 17, dessert: 19 };
-  for (const meal of config.meals) {
+  const meals = mealsFor(config, dateStr);
+  for (const meal of meals) {
     const state = rec.meals && rec.meals[meal.id];
-    if (!state && hour >= (mealHours[meal.id] != null ? mealHours[meal.id] : 6)) {
+    const at = meal.hour != null ? meal.hour : (mealHours[meal.id] != null ? mealHours[meal.id] : 6);
+    if (!state && hour >= at) {
       return { id: `meal-${meal.id}`, label: `Mark ${meal.name.toLowerCase()}` };
     }
   }
@@ -512,7 +582,7 @@ export function nextAction(configDoc, records, measurements, dateStr, hour, expo
   // Anything still unmarked (before its usual hour) — earliest unsatisfied.
   if (rec.weight == null) return { id: 'weight', label: 'Log weight' };
   if (rec.sleepMinutes == null) return { id: 'sleep', label: 'Log sleep' };
-  for (const meal of config.meals) {
+  for (const meal of meals) {
     if (!(rec.meals && rec.meals[meal.id])) {
       return { id: `meal-${meal.id}`, label: `Mark ${meal.name.toLowerCase()}` };
     }
@@ -547,6 +617,7 @@ export function weekStats(configDoc, records, dateStr, todayStr) {
   let mealsMarked = 0, mealsAdhered = 0, mealsPossible = 0;
   let sessionsPlanned = 0, sessionsDone = 0;
   let stepsSum = 0, stepsN = 0, sleepSum = 0, sleepN = 0;
+  let calSum = 0, proSum = 0, nutriN = 0;
   const strip = [];
 
   for (const d of weekDays(dateStr)) {
@@ -568,11 +639,18 @@ export function weekStats(configDoc, records, dateStr, todayStr) {
         state = done ? 'done' : d === todayStr ? 'pending' : 'missed';
       }
       const cfg = configByVersion(configDoc, rec.planVersion || dayPlan(configDoc, d).config.planVersion);
-      for (const meal of cfg.meals) {
+      for (const meal of mealsFor(cfg, d)) {
         mealsPossible++;
         const st = rec.meals && rec.meals[meal.id];
         if (st) mealsMarked++;
         if (st === 'eaten' || st === 'modified') mealsAdhered++;
+      }
+      // Protein is a weekly average, so it is averaged over the days that were
+      // actually logged. A day with nothing marked is missing data, not a 0 g
+      // day, and folding it in would report a shortfall that did not happen.
+      if (rec.meals && Object.keys(rec.meals).length) {
+        const n = dayNutrition(configDoc, rec);
+        calSum += n.cal; proSum += n.protein; nutriN++;
       }
       if (rec.steps != null) { stepsSum += rec.steps; stepsN++; }
       if (rec.sleepMinutes != null) { sleepSum += rec.sleepMinutes; sleepN++; }
@@ -592,6 +670,9 @@ export function weekStats(configDoc, records, dateStr, todayStr) {
     sessionsDone,
     avgSteps: stepsN ? Math.round(stepsSum / stepsN) : null,
     avgSleep: sleepN ? Math.round(sleepSum / sleepN) : null,
+    avgCalories: nutriN ? Math.round(calSum / nutriN) : null,
+    avgProtein: nutriN ? Math.round(proSum / nutriN) : null,
+    nutritionDays: nutriN,
     avgNow,
     avgPrev,
     weekChange: avgNow != null && avgPrev != null ? avgNow - avgPrev : null,

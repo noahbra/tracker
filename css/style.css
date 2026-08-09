@@ -364,6 +364,7 @@ h1, h2, .display {
 .metric-grid > div { padding: 10px 0; border-top: 1px solid var(--rule); }
 .metric-grid > div:nth-child(-n+2) { border-top: none; padding-top: 0; }
 .metric-grid .num { font-size: 22px; font-weight: 500; display: block; }
+.metric-grid .num.good { color: var(--done); }
 
 .recommendation { font-size: 16px; font-weight: 600; line-height: 1.45; }
 .rec-symptom { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--rule); font-size: 14px; color: var(--alert); font-weight: 400; }
@@ -532,9 +533,19 @@ h1, h2, .display {
   padding-top: 10px;
 }
 .ref-table td.r, .ref-table th.r { text-align: right; white-space: nowrap; padding-left: 12px; }
+/* Gutter between columns. Without it a long label in the first column ("Wednesday")
+   runs straight into the second and the two read as one word. */
+.ref-table td:first-child, .ref-table th:first-child { padding-right: 12px; }
+.ref-table td.nw { white-space: nowrap; }
 .ref-table .ref-note, .ref-note { font-size: 12px; color: var(--ink3); margin-top: 2px; }
 .ref-table td.ref-alert { color: var(--alert); font-weight: 600; }
+/* A goal can be words rather than a number ("BW x 5 clean"), which will not
+   fit a nowrap column on a phone. */
+.ref-table td.wrap { white-space: normal; }
+.ex-goal { font-size: 13px; color: var(--ink2); margin-top: 3px; }
 .meal-detail { margin-top: 14px; }
+.ref-list { margin: 8px 0 0; padding-left: 18px; font-size: 13px; color: var(--ink2); }
+.ref-list li { margin-top: 7px; }
 
 .demo-banner {
   font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;

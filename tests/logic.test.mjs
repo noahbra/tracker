@@ -8,12 +8,17 @@ import * as L from '../js/logic.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const liveDoc = JSON.parse(readFileSync(join(__dirname, '../config/plan.json'), 'utf8'));
-// Every hard-coded date below assumes a Monday 2026-07-13 program start. The
-// live effectiveFrom is Noah's actual start date and moves when the program
-// (re)starts, so pin the anchor here and test the live plan content under it.
+// The engine tests below hard-code dates against a Monday 2026-07-13 program
+// start and against the same-menu-every-day plan shape (v3/v4). Noah's real
+// start date moves whenever the program restarts, so pin the anchor here and
+// run the engine against the plan versions those cases were written for. The
+// live plan and its current version get their own section at the bottom.
 const configDoc = {
   ...liveDoc,
-  versions: liveDoc.versions.map((v, i) => (i === 0 ? { ...v, effectiveFrom: '2026-07-13' } : v)),
+  programStart: '2026-07-13',
+  versions: liveDoc.versions
+    .filter((v) => v.planVersion <= 4)
+    .map((v, i) => (i === 0 ? { ...v, effectiveFrom: '2026-07-13' } : v)),
 };
 
 let pass = 0, fail = 0;
@@ -543,6 +548,234 @@ function markedDay(date, sets, marks) {
   // And it is still a logged meal, so the day gauge counts it as answered.
   const gauge = L.dayGauge(configDoc, recsOff, day).find((g) => g.id === 'meals');
   assertEq(gauge.done, true, 'off-plan still marks the meal as logged');
+}
+
+// ---------- the live plan: restart, weekday dinners, weekly protein ----------
+// These run against config/plan.json exactly as shipped. Every expected number
+// is copied from the plan document Noah wrote, not derived from the code.
+
+const V5 = liveDoc.versions.find((v) => v.planVersion === 5);
+const MON = '2026-08-10';
+const WEEK = ['2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13', '2026-08-14', '2026-08-15', '2026-08-16'];
+
+{
+  assert(V5, 'plan carries a version 5');
+  assertEq(L.programStart(liveDoc), MON, 'program restarts Monday Aug 10');
+  assertEq(L.weekday(MON), 1, 'Aug 10 is a Monday');
+  assertEq(L.programDay(liveDoc, MON), 1, 'Aug 10 is day 1');
+  assertEq(L.programWeek(liveDoc, MON), 1, 'Aug 10 is week 1');
+  assertEq(L.configFor(liveDoc, MON).planVersion, 5, 'day 1 resolves to v5');
+  // The doc-level restart date must not be inferable from effectiveFrom alone,
+  // or a restart would mean back-dating versions that were really in force.
+  assert(liveDoc.versions.some((v) => v.effectiveFrom < MON), 'older versions keep their real effectiveFrom');
+}
+
+// Day totals: eating the plan must produce the plan's own printed numbers.
+{
+  const expected = {
+    '2026-08-10': [2156, 155], '2026-08-11': [2111, 182], '2026-08-12': [2111, 182],
+    '2026-08-13': [2181, 162], '2026-08-14': [2231, 164], '2026-08-15': [2431, 164],
+    '2026-08-16': [2331, 149],
+  };
+  const records = {};
+  for (const d of WEEK) {
+    const weekend = [5, 6, 0].includes(L.weekday(d));
+    records[d] = {
+      date: d, schemaVersion: 1, planVersion: 5,
+      meals: { breakfast: 'eaten', lunch: 'eaten', snack: 'eaten', dinner: 'eaten', dessert: 'eaten' },
+      modifiers: weekend ? { weekendShake: true } : {},
+    };
+    const [cal, protein] = expected[d];
+    assertEq(L.dayNutrition(liveDoc, records[d]), { cal, protein }, `${d} totals ${cal} cal / ${protein} g`);
+    const plan = L.dayPlan(liveDoc, d);
+    assertEq(plan.calorieTarget, cal, `${d} calorie target matches what the plan feeds you`);
+    assertEq(plan.proteinTarget, protein, `${d} protein target matches`);
+  }
+
+  // The one rule that governs the diet: 180 g is a weekly average, and no
+  // single day is expected to reach it.
+  const stats = L.weekStats(liveDoc, records, MON, '2026-08-16');
+  assertEq(stats.avgCalories, 2222, 'week averages 2,222 cal');
+  assertEq(stats.avgProtein, 165, 'week averages 165 g protein');
+  assertEq(stats.mealAdherence, 1, 'full week on plan -> 100% adherence');
+  assertEq(L.dayPlan(liveDoc, MON).proteinWeeklyAvg, 180, 'weekly protein target is 180 g');
+  assert(Object.values(expected).filter(([, p]) => p >= 180).length === 2,
+    'only the two chicken days clear 180 g on their own');
+
+  // A day nobody logged is missing data, not a zero-protein day.
+  const partial = L.weekStats(liveDoc, { [MON]: records[MON] }, MON, '2026-08-16');
+  assertEq(partial.nutritionDays, 1, 'averages count only logged days');
+  assertEq(partial.avgProtein, 155, 'one logged day averages to itself');
+}
+
+// Weekday dinners: add on weekdays, replace on weekends.
+{
+  const monDinner = L.mealsFor(V5, '2026-08-10').find((m) => m.id === 'dinner');
+  assertEq(monDinner.components.length, 3, 'Monday dinner = fixed sides + salmon');
+  assert(monDinner.components.some((c) => c.name.startsWith('Salmon')), 'Monday dinner is salmon');
+  assert(monDinner.components.some((c) => c.name.includes('farro')), 'weekday dinner keeps the starch');
+
+  const satDinner = L.mealsFor(V5, '2026-08-15').find((m) => m.id === 'dinner');
+  assertEq(satDinner.components.length, 1, 'restaurant dinner replaces the home sides');
+  assert(!satDinner.components.some((c) => c.name.includes('farro')), 'weekend dinner drops the starch');
+  assertEq(satDinner.name, 'Dinner out', 'weekend dinner is renamed');
+  assert(satDinner.estimate, 'restaurant dinners are flagged as estimates');
+  assertEq(satDinner.add, undefined, 'the override key never leaks into the meal');
+
+  // Resolution must not mutate the config it reads from, or the second render
+  // of a weekday would stack the protein on again.
+  L.mealsFor(V5, '2026-08-10'); L.mealsFor(V5, '2026-08-10');
+  assertEq(V5.meals.find((m) => m.id === 'dinner').components.length, 2, 'base dinner is never mutated');
+
+  // The five CSV meal columns must survive any menu rewrite.
+  assertEq(V5.meals.map((m) => m.id), ['breakfast', 'lunch', 'snack', 'dinner', 'dessert'], 'meal ids unchanged');
+
+  // The weekend shake is the plan's protein insurance and belongs to Fri-Sun only.
+  for (const d of WEEK) {
+    const mods = L.dayPlan(liveDoc, d).mealModifiers;
+    const weekend = [5, 6, 0].includes(L.weekday(d));
+    assertEq(mods.includes('weekendShake'), weekend, `${d} shake offered only on the weekend`);
+    assert(mods.includes('creatine'), `${d} tracks creatine`);
+  }
+  const creatine = V5.mealModifiers.find((m) => m.id === 'creatine');
+  assertEq([creatine.cal, creatine.protein], [0, 0], 'creatine is adherence-only, zero calories');
+}
+
+// Lift A / Lift B as written, and the loads they start from.
+{
+  const A = V5.sessions.liftA.exercises;
+  const B = V5.sessions.liftB.exercises;
+  assertEq(A.map((e) => e.name),
+    ['Conventional deadlift', 'Barbell bench press', 'Chest-supported row', 'Face pull', "Farmer's carry"],
+    'Lift A exercises');
+  assertEq(B.map((e) => e.name),
+    ['Low-bar back squat', 'Overhead press', 'Chin-up or lat pulldown', 'Seated or lying leg curl', 'Suitcase carry or plank'],
+    'Lift B exercises');
+  assertEq(A.map((e) => [e.sets, e.reps]), [[3, 5], [3, 5], [3, 8], [2, 15], [3, 1]], 'Lift A sets x reps');
+  assertEq(B.map((e) => [e.sets, e.reps]), [[3, 5], [3, 5], [3, 8], [3, 12], [3, 1]], 'Lift B sets x reps');
+  assertEq(A.map((e) => e.startWeight), [185, 115, 95, 30, 60], 'Lift A start loads');
+  assertEq(B.map((e) => e.startWeight), [135, 75, 90, 75, 45], 'Lift B start loads');
+  assertEq(A.map((e) => e.goal), [275, 185, 155, 55, 100], 'Lift A goals');
+  assertEq(B.map((e) => e.goal), [225, 115, undefined, 120, 70], 'Lift B goals');
+
+  // Reference renders start, goal and rest for every exercise; a missing one
+  // shows an em dash, which is the bug this catches.
+  for (const [name, s] of Object.entries(V5.sessions)) {
+    for (const e of s.exercises) {
+      assert(e.startWeight != null, `${name}/${e.id} has a start load`);
+      assert(e.goal != null || e.goalLabel, `${name}/${e.id} has a goal`);
+      assert(e.rest, `${name}/${e.id} has a rest period`);
+      assert(e.goalWeeks != null, `${name}/${e.id} has an estimate`);
+    }
+  }
+
+  // Day 1 offers Lift A, seeded at the plan's start loads, with nothing logged.
+  const offered = L.offeredSession(liveDoc, {}, MON);
+  assertEq(offered.sessionId, 'liftA', 'day 1 offers Lift A');
+  assertEq(offered.pushedFrom, null, 'day 1 is not pushed from anything');
+  for (const e of A) {
+    assertEq(L.progression(liveDoc, {}, e.id, e, MON).suggested, e.startWeight, `${e.id} prefills its start load`);
+  }
+  // Thursday is Lift B once Monday's A is done.
+  const done = { [MON]: { date: MON, planVersion: 5, meals: {}, modifiers: {}, workout: { sessionId: 'liftA', sets: { 'bench:0': { weight: 115, reps: 5 } }, completedAt: `${MON}T07:00:00` } } };
+  assertEq(L.offeredSession(liveDoc, done, '2026-08-13').sessionId, 'liftB', 'Thursday is Lift B');
+}
+
+// Tapering increments and per-exercise rounding.
+{
+  const dl = V5.sessions.liftA.exercises.find((e) => e.id === 'deadlift');
+  const ohp = V5.sessions.liftB.exercises.find((e) => e.id === 'ohp');
+  const hitAt = (exId, weight, reps, date) => ({
+    [date]: { date, planVersion: 5, meals: {}, modifiers: {},
+      workout: { sessionId: 'liftA', completedAt: `${date}T07:30:00`, marks: { [exId]: 'hit' },
+        sets: { [`${exId}:0`]: { weight, reps }, [`${exId}:1`]: { weight, reps }, [`${exId}:2`]: { weight, reps } } } },
+  });
+
+  assertEq(L.progression(liveDoc, hitAt('deadlift', 225, 5, '2026-08-17'), 'deadlift', dl, '2026-08-24').suggested, 235,
+    'deadlift climbs 10 while under the taper');
+  assertEq(L.progression(liveDoc, hitAt('deadlift', 235, 5, '2026-08-17'), 'deadlift', dl, '2026-08-24').suggested, 240,
+    'deadlift drops to 5 at the taper');
+  assertEq(L.progression(liveDoc, hitAt('ohp', 75, 5, '2026-08-17'), 'ohp', ohp, '2026-08-24').suggested, 80,
+    'press climbs 5 while under the taper');
+  assertEq(L.progression(liveDoc, hitAt('ohp', 80, 5, '2026-08-17'), 'ohp', ohp, '2026-08-24').suggested, 82.5,
+    'press drops to 2.5 at the taper, and is not rounded away to 5');
+  assertEq(L.progression(liveDoc, hitAt('ohp', 82.5, 5, '2026-08-17'), 'ohp', ohp, '2026-08-24').suggested, 85,
+    'press keeps climbing in 2.5s');
+
+  // Walking each lift week by week, hitting every session, must actually reach
+  // its goal in roughly the time the plan predicts. Increments that never carry
+  // a lift to its target, or carry it there in a third of the time, are a
+  // planning error the app would otherwise hide.
+  for (const s of Object.values(V5.sessions)) {
+    for (const e of s.exercises) {
+      if (e.goal == null) continue;
+      let load = e.startWeight, weeks = 1;
+      while (load < e.goal && weeks < 60) {
+        const date = L.addDays(MON, 7 * (weeks - 1));
+        const next = L.addDays(MON, 7 * weeks);
+        load = L.progression(liveDoc, hitAt(e.id, load, e.reps, date), e.id, e, next).suggested;
+        weeks++;
+      }
+      // >= not ==: an increment that does not divide the gap steps past the
+      // goal rather than stalling under it, which is the safe direction.
+      assert(load >= e.goal, `${e.id} reaches its goal (${load} vs ${e.goal})`);
+      assert(Math.abs(weeks - e.goalWeeks) <= 4, `${e.id} reaches its goal in ~${e.goalWeeks} wks (got ${weeks})`);
+    }
+  }
+  // The two main lifts taper precisely so they land on the number, not past it.
+  for (const id of ['deadlift', 'bench', 'squat', 'ohp', 'csrow', 'facepull', 'legcurl', 'farmer']) {
+    const e = [...V5.sessions.liftA.exercises, ...V5.sessions.liftB.exercises].find((x) => x.id === id);
+    let load = e.startWeight, weeks = 1;
+    while (load < e.goal && weeks < 60) {
+      load = L.progression(liveDoc, hitAt(e.id, load, e.reps, L.addDays(MON, 7 * (weeks - 1))), e.id, e, L.addDays(MON, 7 * weeks)).suggested;
+      weeks++;
+    }
+    assertEq(load, e.goal, `${id} lands exactly on its goal`);
+  }
+}
+
+// The restart: loads start over at the seed, they do not resume the old block.
+{
+  const bench = V5.sessions.liftA.exercises.find((e) => e.id === 'bench');
+  const old = {
+    '2026-08-03': { date: '2026-08-03', planVersion: 4, meals: {}, modifiers: {},
+      workout: { sessionId: 'liftA', completedAt: '2026-08-03T07:30:00',
+        sets: { 'bench:0': { weight: 150, reps: 5 }, 'bench:1': { weight: 150, reps: 5 }, 'bench:2': { weight: 150, reps: 5 } } } },
+  };
+  const p = L.progression(liveDoc, old, 'bench', bench, MON);
+  assertEq(p.suggested, 115, 'a session before day 1 does not set day 1 loads');
+  assert(p.cue.includes('Starting weight'), 'day 1 reads as a starting weight, not a layoff');
+
+  // But history inside the new program still drives progression normally.
+  const fresh = {
+    ...old,
+    [MON]: { date: MON, planVersion: 5, meals: {}, modifiers: {},
+      workout: { sessionId: 'liftA', completedAt: `${MON}T07:30:00`, marks: { bench: 'hit' },
+        sets: { 'bench:0': { weight: 115, reps: 5 }, 'bench:1': { weight: 115, reps: 5 }, 'bench:2': { weight: 115, reps: 5 } } } },
+  };
+  assertEq(L.progression(liveDoc, fresh, 'bench', bench, '2026-08-13').suggested, 120, 'in-program history still progresses');
+  // The old session is still on the record and still exports.
+  assertEq(Object.keys(L.csvToWorkouts(L.workoutsToCsv(fresh))).sort(), ['2026-08-03', MON], 'pre-restart sessions are kept, not deleted');
+}
+
+// Meal prompts follow the plan's own clock, not the app's assumptions.
+{
+  // Meal times come from the plan (coffee 10, midday 12, snack 14, dinner 18),
+  // not from the app's old hard-coded map. With the waist due, the timed meal
+  // branch outranks it only once that meal's hour has arrived, which is what
+  // makes the configured hour observable rather than merely present.
+  const empty = { [MON]: { date: MON, planVersion: 5, meals: {}, modifiers: {}, weight: 218, sleepMinutes: 450 } };
+  assertEq(L.nextAction(liveDoc, empty, [], MON, 9).id, 'waist', 'nothing to eat before the 10am coffee');
+  assertEq(L.nextAction(liveDoc, empty, [], MON, 10).id, 'meal-breakfast', '10am -> coffee');
+  const coffee = { [MON]: { ...empty[MON], meals: { breakfast: 'eaten' } } };
+  assertEq(L.nextAction(liveDoc, coffee, [], MON, 11).id, 'waist', 'midday meal is not due at 11');
+  assertEq(L.nextAction(liveDoc, coffee, [], MON, 12).id, 'meal-lunch', 'noon -> midday meal');
+  // Sunday, so an unlogged lift does not (correctly) outrank dinner at 6pm.
+  const SUN = '2026-08-16';
+  const fed = { [SUN]: { date: SUN, planVersion: 5, weight: 218, sleepMinutes: 450, modifiers: {},
+    meals: { breakfast: 'eaten', lunch: 'eaten', snack: 'eaten' } } };
+  assertEq(L.nextAction(liveDoc, fed, [], SUN, 17).id, 'waist', 'dinner is not due at 5pm');
+  assertEq(L.nextAction(liveDoc, fed, [], SUN, 18).id, 'meal-dinner', '6pm -> dinner');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
