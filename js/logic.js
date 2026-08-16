@@ -529,23 +529,34 @@ export function waistDue(configDoc, measurements, dateStr) {
 
 // ---------- NEXT bar (§7.3) ----------
 
-// `hour` is the local hour 0-23. First unsatisfied wins. `exportStale` lets
-// the NEXT bar surface an overdue backup once the day itself is fully logged.
-export function nextAction(configDoc, records, measurements, dateStr, hour, exportStale = false) {
+// The day runs in one fixed order and the NEXT bar walks it in that order:
+// weight, sleep, training, then the meals at their own hours with the walk
+// between the afternoon snack and dinner, and the evening check-in last.
+// Each step carries the hour it comes due, so the
+// bar waits for a block rather than nagging about dinner at breakfast, but it
+// never reorders the list around the clock.
+const STEPS_HOUR = 16;
+const CHECKIN_HOUR = 19;
+
+// Default hours for a meal the plan does not time itself. The hour a block is
+// eaten belongs to the plan, not to the app: a 10am coffee and a noon oat bowl
+// are the plan's own times.
+const MEAL_HOURS = { breakfast: 6, lunch: 11, snack: 14, dinner: 17, dessert: 19 };
+
+// The day's ordered steps, each with the hour it comes due and whether it is
+// already satisfied. Exported so the order is testable on its own.
+export function nextChain(configDoc, records, dateStr) {
   const rec = records[dateStr] || {};
   const plan = dayPlan(configDoc, dateStr);
   const offered = offeredSession(configDoc, records, dateStr);
   const config = configFor(configDoc, dateStr);
+  const out = [];
 
-  if (hour < 12 && rec.weight == null) return { id: 'weight', label: 'Log weight' };
-  if (hour < 12 && rec.sleepMinutes == null) return { id: 'sleep', label: 'Log sleep' };
+  out.push({ id: 'weight', label: 'Log weight', hour: 0, done: rec.weight != null });
+  out.push({ id: 'sleep', label: 'Log sleep', hour: 0, done: rec.sleepMinutes != null });
 
-  const sessionDone =
-    offered.kind === 'lift'
-      ? !!(rec.workout && rec.workout.completedAt)
-      : !!(rec.cardio && rec.cardio.completedAt);
   const hasSession = offered.kind !== 'rest' && !plan.suppressed && !(offered.kind === 'walk' && offered.optional);
-  if (hasSession && !sessionDone && (hour >= 15 || (hour >= 17 && hour < 20))) {
+  if (hasSession) {
     const name =
       offered.kind === 'lift'
         ? config.sessions[offered.sessionId].name
@@ -554,44 +565,64 @@ export function nextAction(configDoc, records, measurements, dateStr, hour, expo
           : offered.mode === 'zone2'
             ? 'Zone 2'
             : 'Walk';
-    return { id: 'training', label: `${offered.kind === 'lift' ? 'Start ' : ''}${name}` };
+    out.push({
+      id: 'training',
+      label: `${offered.kind === 'lift' ? 'Start ' : ''}${name}`,
+      hour: 0,
+      done: offered.kind === 'lift'
+        ? !!(rec.workout && rec.workout.completedAt)
+        : !!(rec.cardio && rec.cardio.completedAt),
+    });
   }
 
-  // Next meal by time of day. The hour a block is eaten belongs to the plan,
-  // not to the app: a 10am coffee and a noon oat bowl are the plan's own times.
-  const mealHours = { breakfast: 6, lunch: 11, snack: 14, dinner: 17, dessert: 19 };
-  const meals = mealsFor(config, dateStr);
-  for (const meal of meals) {
-    const state = rec.meals && rec.meals[meal.id];
-    const at = meal.hour != null ? meal.hour : (mealHours[meal.id] != null ? mealHours[meal.id] : 6);
-    if (!state && hour >= at) {
-      return { id: `meal-${meal.id}`, label: `Mark ${meal.name.toLowerCase()}` };
-    }
-  }
+  // The add-ons (creatine, the pre-training carb, the weekend shake) stay off
+  // the chain. Creatine goes in the coffee, so the coffee step already carries
+  // it, and a modifier has no "skipped" state: one that was never going to
+  // happen would stall the bar for the rest of the day.
 
-  if (hour >= 18 && (rec.steps || 0) < plan.stepTarget) {
-    return { id: 'steps', label: 'Log steps' };
+  // Meals in plan order, with the walk dropped in ahead of the first meal that
+  // comes due after it — the afternoon snack is eaten, then you walk, then dinner.
+  const walk = { id: 'steps', label: 'Log steps', hour: STEPS_HOUR, done: (rec.steps || 0) >= plan.stepTarget };
+  let walked = false;
+  for (const meal of mealsFor(config, dateStr)) {
+    const at = meal.hour != null ? meal.hour : (MEAL_HOURS[meal.id] != null ? MEAL_HOURS[meal.id] : 6);
+    if (!walked && at > walk.hour) { out.push(walk); walked = true; }
+    out.push({
+      id: `meal-${meal.id}`,
+      label: `Mark ${meal.name.toLowerCase()}`,
+      hour: at,
+      done: !!(rec.meals && rec.meals[meal.id]),
+    });
   }
-  if (hour >= 19 && !(rec.checkin && rec.checkin.symptom)) {
-    return { id: 'checkin', label: 'Evening check-in' };
+  if (!walked) out.push(walk);
+
+  out.push({
+    id: 'checkin',
+    label: 'Evening check-in',
+    hour: CHECKIN_HOUR,
+    done: !!(rec.checkin && rec.checkin.symptom),
+  });
+
+  return out;
+}
+
+// `hour` is the local hour 0-23. First unsatisfied step whose hour has arrived
+// wins; failing that, the earliest unsatisfied step still ahead of its hour.
+// `exportStale` lets the NEXT bar surface an overdue backup once the day itself
+// is fully logged.
+export function nextAction(configDoc, records, measurements, dateStr, hour, exportStale = false) {
+  const chain = nextChain(configDoc, records, dateStr);
+
+  for (const s of chain) {
+    if (!s.done && hour >= s.hour) return { id: s.id, label: s.label };
   }
   if (waistDue(configDoc, measurements, dateStr)) {
     return { id: 'waist', label: 'Measure waist' };
   }
-
-  // Anything still unmarked (before its usual hour) — earliest unsatisfied.
-  if (rec.weight == null) return { id: 'weight', label: 'Log weight' };
-  if (rec.sleepMinutes == null) return { id: 'sleep', label: 'Log sleep' };
-  for (const meal of meals) {
-    if (!(rec.meals && rec.meals[meal.id])) {
-      return { id: `meal-${meal.id}`, label: `Mark ${meal.name.toLowerCase()}` };
-    }
+  // Nothing is due yet — surface the earliest thing still unmarked.
+  for (const s of chain) {
+    if (!s.done) return { id: s.id, label: s.label };
   }
-  if (hasSession && !sessionDone) {
-    return { id: 'training', label: offered.kind === 'lift' ? `Start ${config.sessions[offered.sessionId].name}` : 'Log session' };
-  }
-  if ((rec.steps || 0) < plan.stepTarget) return { id: 'steps', label: 'Log steps' };
-  if (!(rec.checkin && rec.checkin.symptom)) return { id: 'checkin', label: 'Evening check-in' };
 
   // Day fully logged: an overdue backup is the only thing still owed.
   if (exportStale) return { id: 'export', label: 'Export a backup' };

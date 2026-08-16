@@ -70,6 +70,16 @@ sw.js                   offline cache (bump VERSION on breaking changes)
 tests/logic.test.mjs    run: node tests/logic.test.mjs
 ```
 
+## What's next
+
+The bar under the header walks the day in one fixed order:
+
+**weight → sleep → workout → coffee → midday meal → afternoon snack → walk → dinner → dessert → evening check-in.**
+
+Each step carries the hour it comes due (the meals use their own hours from `plan.json`; the walk comes due at 4pm), so the bar waits for a block rather than asking about dinner at breakfast. It never reorders the list around the clock: the first unsatisfied step whose hour has arrived is what it shows, and if nothing is due yet it names the earliest thing still unmarked. A due waist measurement slots in after the day's own steps, and an overdue backup only surfaces once the day is fully logged.
+
+The add-ons under the meals (creatine, the pre-training carb, the weekend shake) stay off the chain. Creatine goes in the coffee, so the coffee step already carries it, and a modifier has no "skipped" state: one you were never going to take would hold the bar for the rest of the day.
+
 ## Fill in a missed day
 
 The date in the Today header is a control. Step back with `‹`, or tap any day in the **This week** strip, and the whole screen points at that date: weight, meals, steps, check-in, and the lift logger all read and write that day. A brass line under the header says you are filling in a past day and takes you back to today.

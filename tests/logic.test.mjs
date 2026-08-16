@@ -764,7 +764,11 @@ const WEEK = ['2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13', '2026-08-1
   // not from the app's old hard-coded map. With the waist due, the timed meal
   // branch outranks it only once that meal's hour has arrived, which is what
   // makes the configured hour observable rather than merely present.
-  const empty = { [MON]: { date: MON, planVersion: 5, meals: {}, modifiers: {}, weight: 218, sleepMinutes: 450 } };
+  // Everything ahead of the meals on the chain is satisfied in these fixtures,
+  // so the meal's own hour is the only thing left deciding the answer.
+  const empty = { [MON]: { date: MON, planVersion: 5, meals: {}, modifiers: {},
+    weight: 218, sleepMinutes: 450,
+    workout: { sessionId: 'liftA', completedAt: `${MON}T07:30:00`, sets: {} } } };
   assertEq(L.nextAction(liveDoc, empty, [], MON, 9).id, 'waist', 'nothing to eat before the 10am coffee');
   assertEq(L.nextAction(liveDoc, empty, [], MON, 10).id, 'meal-breakfast', '10am -> coffee');
   const coffee = { [MON]: { ...empty[MON], meals: { breakfast: 'eaten' } } };
@@ -772,10 +776,61 @@ const WEEK = ['2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13', '2026-08-1
   assertEq(L.nextAction(liveDoc, coffee, [], MON, 12).id, 'meal-lunch', 'noon -> midday meal');
   // Sunday, so an unlogged lift does not (correctly) outrank dinner at 6pm.
   const SUN = '2026-08-16';
-  const fed = { [SUN]: { date: SUN, planVersion: 5, weight: 218, sleepMinutes: 450, modifiers: {},
+  const fed = { [SUN]: { date: SUN, planVersion: 5, weight: 218, sleepMinutes: 450,
+    modifiers: {}, steps: 9000,
     meals: { breakfast: 'eaten', lunch: 'eaten', snack: 'eaten' } } };
   assertEq(L.nextAction(liveDoc, fed, [], SUN, 17).id, 'waist', 'dinner is not due at 5pm');
   assertEq(L.nextAction(liveDoc, fed, [], SUN, 18).id, 'meal-dinner', '6pm -> dinner');
+}
+
+// The day runs in one order and the NEXT bar walks it in that order.
+{
+  const MON = '2026-08-10';                        // lift day
+  const blank = { [MON]: { date: MON, planVersion: 5, meals: {}, modifiers: {} } };
+  assertEq(
+    L.nextChain(liveDoc, blank, MON).map((s) => s.id),
+    ['weight', 'sleep', 'training', 'meal-breakfast', 'meal-lunch',
+     'meal-snack', 'steps', 'meal-dinner', 'meal-dessert', 'checkin'],
+    'chain order: weight, sleep, workout, coffee, midday, snack, walk, dinner, evening log'
+  );
+  // The walk sits between the afternoon snack and dinner, not after dessert.
+  const chain = L.nextChain(liveDoc, blank, MON);
+  const at = (id) => chain.findIndex((s) => s.id === id);
+  assert(at('steps') > at('meal-snack') && at('steps') < at('meal-dinner'), 'walk falls between snack and dinner');
+  assert(at('checkin') === chain.length - 1, 'evening check-in is last');
+
+  // Walked through in order: each step, once satisfied, hands off to the next.
+  const day = { date: MON, planVersion: 5, meals: {}, modifiers: {} };
+  const late = 23;                                  // every step is due by now
+  const measured = [{ id: 'w1', takenAt: `${MON}T07:00:00`, kind: 'waist', value: 41, schemaVersion: 1 }];
+  const seen = [];
+  const satisfy = {
+    weight: () => { day.weight = 218; },
+    sleep: () => { day.sleepMinutes = 450; },
+    training: () => { day.workout = { sessionId: 'liftA', completedAt: `${MON}T07:30:00`, sets: {} }; },
+    steps: () => { day.steps = 9000; },
+    checkin: () => { day.checkin = { symptom: 'None' }; },
+  };
+  for (let i = 0; i < 20; i++) {
+    const n = L.nextAction(liveDoc, { [MON]: day }, measured, MON, late);
+    if (n.id === 'done') break;
+    seen.push(n.id);
+    if (n.id.startsWith('meal-')) day.meals[n.id.slice(5)] = 'eaten';
+    else satisfy[n.id]();
+  }
+  assertEq(
+    seen,
+    ['weight', 'sleep', 'training', 'meal-breakfast', 'meal-lunch',
+     'meal-snack', 'steps', 'meal-dinner', 'meal-dessert', 'checkin'],
+    'NEXT bar advances through the chain in order and then reports the day logged'
+  );
+
+  // Add-ons stay off the chain: creatine goes in the coffee, and a modifier the
+  // day never takes has no way to resolve itself.
+  const FRI = '2026-08-14';                         // weekend shake day
+  const friIds = L.nextChain(liveDoc, { [FRI]: { date: FRI, planVersion: 5, meals: {}, modifiers: {} } }, FRI)
+    .map((s) => s.id);
+  assert(!friIds.some((id) => id.startsWith('mod-')), 'no modifier is on the chain');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
