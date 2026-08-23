@@ -1226,7 +1226,8 @@ const exOf = (sid, id) => V6.sessions[sid].exercises.find((e) => e.id === id);
   // Week three: new training and creatine hold water, and the note says both.
   const w3 = L.weekThreeNote(liveDoc, build(() => 215, 9000), L.addDays(M1, 16));
   assert(w3 && /creatine/.test(w3), 'the week-three note names creatine');
-  assert(/waist and resting heart rate/i.test(w3), 'and points at the honest readings');
+  assert(/the waist is the honest reading/i.test(w3), 'and points at the reading still being taken');
+  assert(!/resting heart rate|grip/i.test(w3), 'not at one that was removed');
 }
 
 // ---------- the record: everything new survives a round trip

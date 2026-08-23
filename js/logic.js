@@ -1159,7 +1159,10 @@ export function weekThreeNote(configDoc, records, dateStr) {
   if (day < 14 || day > 24) return null;
   const trend = trendSlope(records, dateStr);
   if (trend == null || trend <= -0.15) return null;
-  return 'New training and creatine hold water. Waist and resting heart rate are the honest readings right now.';
+  // Points only at what is still measured. Resting heart rate came out of the
+  // app, and a note that sends you to a reading you no longer take is worse
+  // than no note.
+  return 'New training and creatine hold water. The waist is the honest reading right now.';
 }
 
 // ---------- CSV (§6.4) ----------

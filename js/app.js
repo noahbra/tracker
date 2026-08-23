@@ -173,7 +173,7 @@ function demoData() {
   };
   const measurements = [
     { id: 'demo-w1', takenAt: `${start}T07:00:00`, kind: 'waist', value: 42.0, schemaVersion: 1 },
-    { id: 'demo-r1', takenAt: `${L.addDays(start, 6)}T08:00:00`, kind: 'restingHr', value: 63, schemaVersion: 1 },
+    { id: 'demo-b1', takenAt: `${L.addDays(start, 6)}T08:00:00`, kind: 'bloodPressure', value: 126, value2: 80, schemaVersion: 1 },
   ];
   return { records, measurements };
 }
@@ -383,7 +383,7 @@ function renderToday() {
   if (L.weekday(t) === 0 && state.meta.measurementsDismissed !== L.weekStart(t) && !measuredThisWeek(t)) {
     html += `<button class="prompt" data-act="sheet" data-sheet="measurements">
       <span class="title">Sunday measurements</span>
-      <span class="sub">Resting HR, blood pressure, grip. Each skippable.</span>
+      <span class="sub">Blood pressure. Skippable.</span>
     </button>`;
   }
 
@@ -423,7 +423,7 @@ function weekThreeHtml(t) {
 
 function measuredThisWeek(t) {
   const ws = L.weekStart(t);
-  return state.measurements.some((m) => m.kind === 'restingHr' && m.takenAt.slice(0, 10) >= ws);
+  return state.measurements.some((m) => m.kind === 'bloodPressure' && m.takenAt.slice(0, 10) >= ws);
 }
 
 // ---------- training section ----------
@@ -775,7 +775,15 @@ function renderWeek() {
 
 const DAY_ORDER = ['1', '2', '3', '4', '5', '6', '0'];
 const DAY_FULL = { 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday', 0: 'Sunday' };
-const MEASURE_LABELS = { waist: 'Waist, in', restingHr: 'Resting HR, bpm', bloodPressure: 'Blood pressure', grip: 'Grip, lb' };
+const MEASURE_LABELS = {
+  waist: 'Waist, in',
+  bloodPressure: 'Blood pressure',
+  // No longer collected. Kept so measurements already on the record still
+  // render with a name: removing a measurement ends the tracking, it does not
+  // delete what was recorded.
+  restingHr: 'Resting HR, bpm',
+  grip: 'Grip, lb',
+};
 
 function describeSched(entry, config) {
   if (entry.type === 'lift') return `${entry.label || 'Lift'} — A/B alternating`;
@@ -1137,13 +1145,11 @@ function sheetHtml(sheet) {
       <div class="sheet-actions"><button class="btn ghost" data-act="close-sheet">Cancel</button></div>`;
   }
   if (sheet.kind === 'measurements') {
-    return `<span class="label">Sunday measurements</span><h2>Each one skippable</h2>
-      <div class="field"><span class="fl label">Resting heart rate, bpm</span><input id="sh-rhr" type="text" inputmode="numeric" placeholder="62"></div>
+    return `<span class="label">Sunday measurement</span><h2>Blood pressure, skippable</h2>
       <div class="two">
         <div class="field"><span class="fl label">Systolic</span><input id="sh-sys" type="text" inputmode="numeric" placeholder="125"></div>
         <div class="field"><span class="fl label">Diastolic</span><input id="sh-dia" type="text" inputmode="numeric" placeholder="80"></div>
       </div>
-      <div class="field"><span class="fl label">Grip, lb (quarterly is fine)</span><input id="sh-grip" type="text" inputmode="decimal" placeholder=""></div>
       <div class="sheet-actions"><button class="btn quiet" data-act="dismiss-measurements">Not today</button><button class="btn primary" data-act="save-measurements">Save</button></div>`;
   }
   if (sheet.kind === 'settings') {
@@ -1498,14 +1504,7 @@ function handleAction(act, el) {
       break;
     }
     case 'save-measurements': {
-      const fields = [
-        ['sh-rhr', 'restingHr'], ['sh-grip', 'grip'],
-      ];
       mutate(() => {
-        for (const [id, kind] of fields) {
-          const v = parseFloat(document.getElementById(id).value);
-          if (!isNaN(v)) state.measurements.push({ id: `${kind}-${Date.now()}`, takenAt: stampIso(), kind, value: v, schemaVersion: state.meta.schemaVersion });
-        }
         const sys = parseFloat(document.getElementById('sh-sys').value);
         const dia = parseFloat(document.getElementById('sh-dia').value);
         if (!isNaN(sys)) {

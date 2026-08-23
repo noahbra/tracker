@@ -133,6 +133,12 @@ Grindy exists because it cannot be inferred. All the reps were completed, so the
 
 Each exercise in `config/plan.json` carries a `startWeight`. It is what the logger prefills the first time that lift appears, before there is any history to progress from. After the first session, history wins and the seed is ignored — history from the current program, that is: a session logged before `programStart` belongs to a previous block and does not carry into this one.
 
+## Measurements
+
+Waist every 14 days is the measurement the plan runs on, and blood pressure is the Sunday one. Resting heart rate and grip were dropped: neither changed a decision, and a reading nobody acts on is a prompt with no payoff.
+
+Readings taken before they were dropped stay on the record, still export, and still render with their names on the Reference tab. Ending the tracking is not the same as deleting the history.
+
 ## Meals
 
 Four states: **ate the planned meal**, **ate something similar**, **ate off-plan**, **skipped**. Off-plan means food that was eaten but departed from the plan (low protein, heavy carbs, restaurant). It counts toward the day's calories and protein, because a meal was eaten, but it does not count toward meal adherence, which is the number the weekly recommendation acts on.
@@ -159,6 +165,7 @@ There is also a browser-level test for the things no pure-logic test can show: t
 
 ```
 node tests/backfill.browser.mjs
+node tests/measurements.browser.mjs
 ```
 
 ## Not in this build (web platform limits)
