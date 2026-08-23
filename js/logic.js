@@ -1,7 +1,7 @@
 // Pure business logic. No DOM, no storage. Everything here is a function of
 // (records, measurements, config, date/time). Tested in tests/logic.test.mjs.
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 // ---------- dates ----------
 
@@ -396,11 +396,54 @@ function incrementFor(exCfg, load, p) {
   return exCfg.increment != null ? exCfg.increment : p.roundToNearest;
 }
 
-// Returns { suggested, cue, tone } — suggestion only, never enforced.
+// The rule that governs an exercise. Rules are config, not code: a plan that
+// progresses a lift by reps first, or by variation, or by a coach's eye, says
+// so in `progressionRules` and the engine reads it. Absent a key, load.
+export function progressionRule(config, exCfg) {
+  const rules = config.progressionRules || {};
+  return rules[(exCfg || {}).progressionKey] || { type: 'load' };
+}
+
+// Reps completed on the lightest set of a session — the rep target a session
+// actually delivered on every set, which is what a rep ladder advances off.
+function minReps(session) {
+  return session.logged.length ? Math.min(...session.logged.map((s) => s.reps)) : 0;
+}
+
+function fullSets(session, exCfg) {
+  return session.logged.length >= exCfg.sets;
+}
+
+// The rung of a rep ladder a session cleared: the highest listed value every
+// set met. Below the first rung, the ladder has not started.
+function ladderRung(ladder, reps) {
+  let out = null;
+  for (const r of ladder) if (reps >= r) out = r;
+  return out;
+}
+
+function nextLadder(ladder, rung) {
+  const i = ladder.indexOf(rung);
+  return i >= 0 && i < ladder.length - 1 ? ladder[i + 1] : null;
+}
+
+// Returns { suggested, reps, cue, tone, prompt } — a suggestion, never enforced.
+// `suggested` is the load and is null where the exercise carries none.
+// `reps` is the rep (or second) target for the next session.
+// `prompt` is a change the app will not make on its own — a harder push-up
+// variation, load on a bodyweight lift — offered for the user to accept.
 export function progression(configDoc, records, exerciseId, exCfg, todayStr) {
   const config = configFor(configDoc, todayStr);
   const p = config.progression;
+  const rule = progressionRule(config, exCfg);
   const step = roundStep(exCfg, p);
+  // Whether the exercise is measured in load at all. Bodyweight reps and timed
+  // holds are not, and the load machinery — layoff, deload, the increment —
+  // has nothing to act on. It is the entry shape that decides this, not
+  // whether the plan happened to seed a starting weight.
+  const carriesLoad = (exCfg.entry || 'weightReps') === 'weightReps';
+  const defaults = { suggested: null, reps: exCfg.reps, cue: null, tone: 'none', prompt: null };
+
   // Loads restart when the program restarts. Sessions from a previous block
   // are kept (they are still history, still exported) but they no longer set
   // today's load, or a restart would silently resume at the old weights
@@ -411,8 +454,11 @@ export function progression(configDoc, records, exerciseId, exCfg, todayStr) {
   // No history: the seeded start load from the plan. A blank field asks the
   // user to invent a number at the moment they are least able to judge it.
   if (!hist.length) {
-    if (exCfg.startWeight == null) return { suggested: null, cue: null, tone: 'none' };
+    if (!carriesLoad || exCfg.startWeight == null) {
+      return { ...defaults, cue: `Starting point — ${exCfg.startLabel || exScheme(exCfg)}`, tone: 'neutral' };
+    }
     return {
+      ...defaults,
       suggested: exCfg.startWeight,
       cue: `Starting weight — ${exCfg.startLabel || `${exCfg.startWeight} ${exCfg.unit}`}`,
       tone: 'neutral',
@@ -422,6 +468,8 @@ export function progression(configDoc, records, exerciseId, exCfg, todayStr) {
   const last = hist[hist.length - 1];
   const lastLoad = sessionLoad(last);
   const lastOutcome = outcomeOf(last, exCfg);
+  const lastReps = minReps(last);
+  const unit = exCfg.unit || 'lb';
 
   // Heaviest load carried for all prescribed reps. Grindy counts: the reps were
   // completed, it just cost everything to do it.
@@ -433,61 +481,366 @@ export function progression(configDoc, records, exerciseId, exCfg, todayStr) {
     }
   }
 
-  // Layoff: long gap since this exercise was last performed.
-  const gap = daysBetween(last.date, todayStr);
-  if (gap > p.layoffDays && lastSuccess !== null) {
-    const suggested = roundTo(lastSuccess * p.layoffFactor, step);
-    return {
-      suggested,
-      cue: `It's been ${gap} days — start at ${suggested} ${exCfg.unit}`,
-      tone: 'neutral',
-    };
-  }
+  // Layoff and deload govern every exercise that carries a load, whatever
+  // shape its progression takes on top.
+  if (carriesLoad) {
+    const gap = daysBetween(last.date, todayStr);
+    if (gap > p.layoffDays && lastSuccess !== null) {
+      const suggested = roundTo(lastSuccess * p.layoffFactor, step);
+      return { ...defaults, suggested, reps: lastReps || exCfg.reps, cue: `It's been ${gap} days — start at ${suggested} ${unit}`, tone: 'neutral' };
+    }
 
-  // Misses count only at >= the user's own last successful load (§8.2).
-  // Attempts above lastSuccess that fail are ambition, not failure; attempts
-  // below it neither count nor break the streak.
-  let misses = 0;
-  for (let i = hist.length - 1; i >= 0; i--) {
-    const s = hist[i];
-    if (outcomeOf(s, exCfg) !== 'miss') break;
-    if (lastSuccess === null || sessionLoad(s) >= lastSuccess) {
-      if (lastSuccess !== null && sessionLoad(s) > lastSuccess) continue; // over-reach: skip
-      misses++;
+    // Misses count only at >= the user's own last successful load (§8.2).
+    // Attempts above lastSuccess that fail are ambition, not failure; attempts
+    // below it neither count nor break the streak.
+    let misses = 0;
+    for (let i = hist.length - 1; i >= 0; i--) {
+      const s = hist[i];
+      if (outcomeOf(s, exCfg) !== 'miss') break;
+      if (lastSuccess === null || sessionLoad(s) >= lastSuccess) {
+        if (lastSuccess !== null && sessionLoad(s) > lastSuccess) continue; // over-reach: skip
+        misses++;
+      }
+    }
+    if (lastSuccess !== null && misses >= p.consecutiveMissesBeforeDeload) {
+      const suggested = roundTo(lastSuccess * p.deloadFactor, step);
+      return { ...defaults, suggested, cue: `${misses} misses — drop to ${suggested} ${unit} and rebuild`, tone: 'neutral' };
     }
   }
 
-  if (lastSuccess !== null && misses >= p.consecutiveMissesBeforeDeload) {
-    const suggested = roundTo(lastSuccess * p.deloadFactor, step);
-    return {
-      suggested,
-      cue: `${misses} misses — drop to ${suggested} ${exCfg.unit} and rebuild`,
-      tone: 'neutral',
-    };
-  }
+  const hold = (cue) => ({ ...defaults, suggested: carriesLoad ? lastLoad : null, reps: lastReps || exCfg.reps, cue, tone: 'neutral' });
 
   if (lastOutcome === 'grindy') {
-    return {
-      suggested: lastLoad,
-      cue: `Ground it out at ${lastLoad} ${exCfg.unit} — run it again`,
-      tone: 'neutral',
-    };
+    return hold(carriesLoad
+      ? `Ground it out at ${lastLoad} ${unit} — run it again`
+      : `Ground it out at ${lastReps} — run it again`);
   }
 
-  if (lastOutcome === 'hit') {
-    const suggested = roundTo(lastLoad + incrementFor(exCfg, lastLoad, p), step);
-    return {
-      suggested,
-      cue: `All reps hit last time — go ${suggested} ${exCfg.unit}`,
-      tone: 'done',
-    };
+  switch (rule.type) {
+    // Reps first, then load: 8 → 9 → 10, then the increment and back to 8.
+    case 'repsThenLoad': {
+      const from = rule.repFrom != null ? rule.repFrom : exCfg.reps;
+      const to = rule.repTo != null ? rule.repTo : exCfg.reps;
+      if (lastOutcome === 'miss') return hold(`Missed at ${lastLoad} ${unit} × ${lastReps || exCfg.reps} — repeat it`);
+      if (fullSets(last, exCfg) && lastReps >= to) {
+        const suggested = roundTo(lastLoad + incrementFor(exCfg, lastLoad, p), step);
+        return { ...defaults, suggested, reps: from, cue: `${last.logged.length} × ${to} clean — go ${suggested} ${unit}, back to ${from} reps`, tone: 'done' };
+      }
+      const reps = Math.min(to, (lastReps || from) + 1);
+      return { ...defaults, suggested: lastLoad, reps, cue: `Add a rep — ${lastLoad} ${unit} × ${reps}`, tone: 'done' };
+    }
+
+    // Bodyweight reps to a ceiling, then a harder variation. Never more reps
+    // past the ceiling: the answer to easy push-ups is leverage, not volume.
+    case 'repsThenVariation': {
+      const from = rule.repFrom != null ? rule.repFrom : exCfg.reps;
+      const to = rule.repTo != null ? rule.repTo : exCfg.reps;
+      const vars = rule.variations || [];
+      const at = vars.indexOf(exCfg.variation || vars[0]);
+      if (lastOutcome === 'miss') return hold(`Missed at ${lastReps} — repeat it`);
+      if (fullSets(last, exCfg) && lastReps >= to) {
+        const next = at >= 0 && at < vars.length - 1 ? vars[at + 1] : null;
+        return {
+          ...defaults,
+          reps: from,
+          cue: `${last.logged.length} × ${to} clean — that's the ceiling`,
+          tone: 'done',
+          prompt: next ? { kind: 'variation', to: next, label: `Move to ${next.toLowerCase()}, back to ${from} reps` } : null,
+        };
+      }
+      const reps = Math.min(to, (lastReps || from) + 1);
+      return { ...defaults, reps, cue: `Add a rep — ${last.logged.length || exCfg.sets} × ${reps}`, tone: 'done' };
+    }
+
+    // A fixed bodyweight ladder, then load. Regresses a rung on a miss, which
+    // is the whole point on a lift that answers to the back.
+    case 'repLadder': {
+      const ladder = rule.ladder || [exCfg.reps];
+      const rung = ladderRung(ladder, lastReps) || ladder[0];
+      if (lastOutcome === 'miss') {
+        const i = ladder.indexOf(rung);
+        const back = i > 0 ? ladder[i - 1] : ladder[0];
+        return { ...defaults, suggested: carriesLoad ? lastLoad : null, reps: back, cue: `Back to ${last.logged.length || exCfg.sets} × ${back}${rule.note ? ` — ${rule.note.toLowerCase()}` : ''}`, tone: 'neutral' };
+      }
+      if (!fullSets(last, exCfg) || lastReps < rung) return hold(`Repeat ${exCfg.sets} × ${rung}`);
+      const next = nextLadder(ladder, rung);
+      if (next) return { ...defaults, suggested: carriesLoad ? lastLoad : null, reps: next, cue: `${exCfg.sets} × ${rung} clean — go ${exCfg.sets} × ${next}`, tone: 'done' };
+      return {
+        ...defaults,
+        suggested: carriesLoad ? lastLoad : null,
+        reps: rung,
+        cue: `${exCfg.sets} × ${rung} at bodyweight — the ladder is finished`,
+        tone: 'done',
+        prompt: rule.thenLoad ? { kind: 'load', to: rule.thenLoad, label: `Add ${rule.thenLoad} lb and drop back to ${exCfg.sets} × ${ladder[0]}` } : null,
+      };
+    }
+
+    // Judged by eye, not by a rep count. The app holds the load and states the
+    // gate; a session marked Hit is the user saying the gate was cleared.
+    case 'subjective': {
+      if (lastOutcome !== 'hit') return hold(carriesLoad ? `Last time ${lastLoad} ${unit} — repeat it` : `Last time ${lastReps} ${unit === 'sec' ? 's' : ''} — repeat it`);
+      if (carriesLoad) {
+        const suggested = roundTo(lastLoad + incrementFor(exCfg, lastLoad, p), step);
+        return { ...defaults, suggested, cue: `${suggested} ${unit} — ${rule.rule || 'only if it stays clean'}`, tone: 'done' };
+      }
+      const reps = lastReps + (rule.increment || 5);
+      return { ...defaults, reps, cue: `${reps}${unit === 'sec' ? ' s' : ''} — ${rule.rule || 'only if it stays easy'}`, tone: 'done' };
+    }
+
+    // Bar work in chin-up phase 2: negatives or a band, logged as a note. There
+    // is no number to progress — the band gets thinner, which the user judges.
+    case 'chinBar':
+      return { ...defaults, reps: lastReps || exCfg.reps, cue: 'Thinner band or slower negatives than last time', tone: 'neutral' };
+
+    // Chin-up phase 3: one more rep anywhere across the three sets.
+    case 'chinReps': {
+      if (lastOutcome === 'miss') return hold(`Repeat ${last.logged.map((s) => s.reps).join('/')}`);
+      const total = last.logged.reduce((a, s) => a + s.reps, 0);
+      return { ...defaults, reps: lastReps, cue: `${last.logged.map((s) => s.reps).join('/')} last time, ${total} total — add one rep anywhere`, tone: 'done' };
+    }
+
+    default: {
+      // Plain load progression. `cleanSessionsBeforeAdvance` holds the load
+      // until it has been carried cleanly more than once, which is what the
+      // plan asks for on the glute and hamstring work.
+      if (lastOutcome !== 'hit') return hold(`Last time ${lastLoad} ${unit} — repeat it`);
+      const need = rule.cleanSessionsBeforeAdvance || 1;
+      if (need > 1) {
+        let clean = 0;
+        for (let i = hist.length - 1; i >= 0; i--) {
+          const s = hist[i];
+          if (outcomeOf(s, exCfg) === 'hit' && sessionLoad(s) === lastLoad) clean++;
+          else break;
+        }
+        if (clean < need) {
+          return hold(`${clean} clean session${clean === 1 ? '' : 's'} at ${lastLoad} ${unit} — one more before it moves`);
+        }
+      }
+      const suggested = roundTo(lastLoad + incrementFor(exCfg, lastLoad, p), step);
+      return { ...defaults, suggested, cue: `All reps hit last time — go ${suggested} ${unit}`, tone: 'done' };
+    }
+  }
+}
+
+// Sets × reps as the plan writes it. Lives here rather than in the UI because
+// the progression cues quote it.
+export function exScheme(e) {
+  return e.scheme || `${e.sets} × ${e.reps}`;
+}
+
+// ---------- chin-up phases (§6.2) ----------
+
+export function chinupConfig(config) {
+  return config.chinup || null;
+}
+
+// The phase in force. Read from what the user accepted, never inferred from
+// performance: meeting a trigger prompts, it does not advance.
+export function chinupPhase(configDoc, records, dateStr) {
+  const config = configFor(configDoc, dateStr);
+  const phases = (chinupConfig(config) || {}).phases || [];
+  if (!phases.length) return 0;
+  const start = programStart(configDoc);
+  let ph = 1;
+  for (const r of Object.values(records)) {
+    if (r.date > dateStr || r.date < start) continue;
+    const p = r.workout && r.workout.chinPhase;
+    if (p && p > ph) ph = p;
+  }
+  return Math.min(ph, phases.length);
+}
+
+// Everything the chin-up card needs: the active phase, its exercises, how far
+// along its trigger is, and whether the trigger has been met.
+export function chinupState(configDoc, records, dateStr) {
+  const config = configFor(configDoc, dateStr);
+  const chin = chinupConfig(config);
+  if (!chin || !(chin.phases || []).length) return null;
+  const phase = chinupPhase(configDoc, records, dateStr);
+  const cfg = chin.phases.find((p) => p.phase === phase) || chin.phases[0];
+  const adv = cfg.advance || {};
+  const start = programStart(configDoc);
+  const histFor = (id) => exerciseHistory(records, id).filter((s) => s.date >= start && s.date <= dateStr);
+
+  let current = 0, target = null, met = false, detail = null, dueTest = false, lastNote = null;
+
+  if (adv.kind === 'load') {
+    target = adv.target;
+    const need = adv.reps != null ? adv.reps : 8;
+    for (const s of histFor(adv.exerciseId)) {
+      if (s.logged.length && s.logged.every((x) => x.reps >= need)) {
+        current = Math.max(current, sessionLoad(s));
+      }
+    }
+    met = current >= target;
+    detail = `${current || 0} of ${target} lb`;
+  } else if (adv.kind === 'unassisted') {
+    target = adv.target != null ? adv.target : 1;
+    let lastTest = null;
+    for (const r of Object.values(records)) {
+      if (r.date > dateStr || r.date < start) continue;
+      const w = r.workout;
+      if (!w) continue;
+      if (w.chinUnassisted != null) {
+        current = Math.max(current, w.chinUnassisted);
+        if (!lastTest || r.date > lastTest) lastTest = r.date;
+      }
+      if (w.chinBandOrNegatives && (!lastNote || r.date >= lastNote.date)) {
+        lastNote = { date: r.date, text: w.chinBandOrNegatives };
+      }
+    }
+    met = current >= target;
+    dueTest = !met && (!lastTest || daysBetween(lastTest, dateStr) >= (cfg.testEveryDays || 14));
+    detail = current ? `${current} unassisted logged` : 'no unassisted rep logged yet';
+  } else if (adv.kind === 'reps') {
+    const perSet = adv.perSet != null ? adv.perSet : 8;
+    target = perSet;
+    const h = histFor(adv.exerciseId);
+    const lastS = h[h.length - 1];
+    const prevS = h[h.length - 2];
+    if (lastS) {
+      current = Math.min(...lastS.logged.map((s) => s.reps));
+      const total = lastS.logged.reduce((a, s) => a + s.reps, 0);
+      const prevTotal = prevS ? prevS.logged.reduce((a, s) => a + s.reps, 0) : null;
+      detail = `${lastS.logged.map((s) => s.reps).join('/')} last time, ${total} total${prevTotal != null ? ` (was ${prevTotal})` : ''}`;
+      met = lastS.logged.length >= 3 && current >= perSet;
+    } else {
+      detail = 'nothing logged yet';
+    }
   }
 
-  return {
-    suggested: lastLoad,
-    cue: `Last time ${lastLoad} ${exCfg.unit} — repeat it`,
-    tone: 'neutral',
-  };
+  const progress = target ? Math.max(0, Math.min(1, current / target)) : 0;
+  const next = chin.phases.find((p) => p.phase === phase + 1) || null;
+  return { phase, cfg, next, current, target, progress, met, detail, dueTest, lastNote, moraleNote: chin.moraleNote };
+}
+
+// The exercises actually performed in a session on a given day: the plan's
+// list with any phased slot expanded to the phase in force. Everything
+// downstream keys off real exercise ids, so history survives a phase change.
+export function sessionExercises(configDoc, records, sessionId, dateStr) {
+  const config = configFor(configDoc, dateStr);
+  const session = config.sessions[sessionId];
+  if (!session) return [];
+  const out = [];
+  for (const e of session.exercises) {
+    if (e.phased === 'chinup') {
+      const st = chinupState(configDoc, records, dateStr);
+      if (!st) continue;
+      for (const pe of st.cfg.exercises) out.push(withVariant(records, { ...pe, phasedFrom: 'chinup', phase: st.phase, rest: pe.rest || e.rest }, dateStr));
+    } else {
+      out.push(withVariant(records, e, dateStr));
+    }
+  }
+  return out;
+}
+
+// A harder variation the user accepted (feet-elevated push-ups, say). It is
+// logged history, not settings: the app proposes it, accepting writes it to
+// that day's workout, and every later session reads the most recent one.
+export function exerciseVariant(records, exerciseId, dateStr) {
+  let best = null;
+  for (const r of Object.values(records)) {
+    if (r.date > dateStr) continue;
+    const v = r.workout && r.workout.variants && r.workout.variants[exerciseId];
+    if (v && (!best || r.date >= best.date)) best = { date: r.date, variant: v };
+  }
+  return best ? best.variant : null;
+}
+
+function withVariant(records, e, dateStr) {
+  const v = exerciseVariant(records, e.id, dateStr);
+  return v ? { ...e, name: v, variation: v } : e;
+}
+
+// ---------- Achilles rehab (§9) ----------
+
+export function rehabConfig(config) {
+  return (config.rehab && config.rehab.achilles) || null;
+}
+
+export function rehabDone(records, dateStr) {
+  const r = records[dateStr];
+  return !!(r && r.rehab && r.rehab.heelRaisesDone);
+}
+
+export function achillesAnswer(records, dateStr) {
+  const r = records[dateStr];
+  return (r && r.checkin && r.checkin.achilles) || null;
+}
+
+// The most recent morning reading, today's first. It governs today's rehab
+// load: the exercise is judged by the next morning, not by how it felt.
+export function achillesLatest(records, dateStr, lookback = 3) {
+  for (let i = 0; i < lookback; i++) {
+    const d = addDays(dateStr, -i);
+    const a = achillesAnswer(records, d);
+    if (a) return { date: d, answer: a };
+  }
+  return null;
+}
+
+// A 'worse' morning is a pull-back, and the order matters: the load-bearing
+// sessions come down before the rehab does, or the tendon loses the one thing
+// that is actually rebuilding it.
+export function achillesPullBack(configDoc, records, dateStr) {
+  const cfg = rehabConfig(configFor(configDoc, dateStr));
+  const latest = achillesLatest(records, dateStr);
+  if (!cfg || !latest || latest.answer !== 'worse') return null;
+  return { since: latest.date, text: cfg.worseResponse, order: cfg.pullBackOrder || [] };
+}
+
+// Suggested heel-raise load: what was last used, held back a step when the
+// morning reading came in worse. Under-set beats over-set here — an irritated
+// tendon loaded too fast costs weeks.
+export function rehabLoad(configDoc, records, dateStr) {
+  const cfg = rehabConfig(configFor(configDoc, dateStr));
+  if (!cfg) return null;
+  const start = programStart(configDoc);
+  let last = null;
+  for (const r of Object.values(records)) {
+    if (r.date >= dateStr || r.date < start) continue;
+    if (r.rehab && r.rehab.loadUsed != null && (!last || r.date > last.date)) last = { date: r.date, load: r.rehab.loadUsed };
+  }
+  const pull = achillesPullBack(configDoc, records, dateStr);
+  const base = last ? last.load : (cfg.startLoad != null ? cfg.startLoad : 0);
+  if (pull) {
+    const inc = cfg.loadIncrement || 5;
+    return { suggested: Math.max(0, base - inc), from: base, reduced: true };
+  }
+  return { suggested: base, from: last ? last.load : null, reduced: false };
+}
+
+export function achillesWorseDays(records, dateStr) {
+  return weekDays(dateStr).filter((d) => achillesAnswer(records, d) === 'worse');
+}
+
+// Dates and answers, oldest last — the list the user's clinician actually
+// wants, and the reason the question is one tap rather than a free-text box.
+export function achillesTimeline(records) {
+  return Object.values(records)
+    .filter((r) => (r.checkin && r.checkin.achilles) || (r.rehab && (r.rehab.heelRaisesDone || r.rehab.loadUsed != null)))
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .map((r) => ({
+      date: r.date,
+      answer: (r.checkin && r.checkin.achilles) || null,
+      done: !!(r.rehab && r.rehab.heelRaisesDone),
+      load: r.rehab && r.rehab.loadUsed != null ? r.rehab.loadUsed : null,
+    }));
+}
+
+// ---------- steps (§8) ----------
+
+// Steps banked this week against the pace the weekly target implies. A 14k
+// hike covers an 8.2k recovery day: the week is what has to clear, so a low
+// day inside a covered week is not a miss and is not flagged as one.
+export function stepPace(configDoc, records, dateStr) {
+  const config = configFor(configDoc, dateStr);
+  const weekly = config.targets.stepWeeklyTarget;
+  if (!weekly) return null;
+  const days = weekDays(dateStr).filter((d) => d <= dateStr);
+  const total = days.reduce((a, d) => a + ((records[d] && records[d].steps) || 0), 0);
+  const required = Math.round((weekly * days.length) / 7);
+  return { total, required, weekly, elapsed: days.length, onPace: total >= required };
 }
 
 // ---------- day gauge (§7.1) ----------
@@ -504,15 +857,28 @@ export function dayGauge(configDoc, records, dateStr) {
     (offered.kind === 'lift'
       ? !!(rec.workout && rec.workout.completedAt)
       : !!(rec.cardio && rec.cardio.completedAt)) ||
+    offered.optional === true ||
     (offered.kind === 'walk' && offered.optional && !!(rec.cardio && rec.cardio.completedAt));
-  return [
+  // Steps clear on the daily target OR on the week being on pace, because the
+  // plan sets both and a low day inside a covered week is not a miss.
+  const pace = stepPace(configDoc, records, dateStr);
+  const stepsDone = (rec.steps || 0) >= plan.stepTarget || !!(pace && pace.onPace && rec.steps != null);
+  const rehab = rehabConfig(configFor(configDoc, dateStr));
+  const segs = [
     { id: 'weight',   label: 'Weight',   done: rec.weight != null },
     { id: 'sleep',    label: 'Sleep',    done: rec.sleepMinutes != null },
     { id: 'meals',    label: 'Meals',    done: allMeals },
-    { id: 'steps',    label: 'Steps',    done: (rec.steps || 0) >= plan.stepTarget },
+    { id: 'steps',    label: 'Steps',    done: stepsDone },
     { id: 'training', label: 'Training', done: trainingDone },
-    { id: 'checkin',  label: 'Check-in', done: !!(rec.checkin && rec.checkin.symptom) },
   ];
+  // Rehab runs daily and stands on its own, outside the strength days.
+  if (rehab) segs.push({ id: 'rehab', label: 'Rehab', done: rehabDone(records, dateStr) });
+  segs.push({
+    id: 'checkin',
+    label: 'Check-in',
+    done: !!(rec.checkin && rec.checkin.symptom && (!rehab || rec.checkin.achilles)),
+  });
+  return segs;
 }
 
 // ---------- waist due (§7.5) ----------
@@ -536,6 +902,8 @@ export function waistDue(configDoc, measurements, dateStr) {
 // bar waits for a block rather than nagging about dinner at breakfast, but it
 // never reorders the list around the clock.
 const STEPS_HOUR = 16;
+// Rehab is near-daily and sits after the day's training rather than inside it.
+const REHAB_HOUR = 17;
 const CHECKIN_HOUR = 19;
 
 // Default hours for a meal the plan does not time itself. The hour a block is
@@ -582,7 +950,14 @@ export function nextChain(configDoc, records, dateStr) {
 
   // Meals in plan order, with the walk dropped in ahead of the first meal that
   // comes due after it — the afternoon snack is eaten, then you walk, then dinner.
-  const walk = { id: 'steps', label: 'Log steps', hour: STEPS_HOUR, done: (rec.steps || 0) >= plan.stepTarget };
+  // Rehab and the check-in follow at the end of the chain.
+  const pace = stepPace(configDoc, records, dateStr);
+  const walk = {
+    id: 'steps',
+    label: 'Log steps',
+    hour: STEPS_HOUR,
+    done: (rec.steps || 0) >= plan.stepTarget || !!(pace && pace.onPace && rec.steps != null),
+  };
   let walked = false;
   for (const meal of mealsFor(config, dateStr)) {
     const at = meal.hour != null ? meal.hour : (MEAL_HOURS[meal.id] != null ? MEAL_HOURS[meal.id] : 6);
@@ -596,11 +971,16 @@ export function nextChain(configDoc, records, dateStr) {
   }
   if (!walked) out.push(walk);
 
+  const rehab = rehabConfig(config);
+  if (rehab) {
+    out.push({ id: 'rehab', label: 'Achilles heel raises', hour: REHAB_HOUR, done: rehabDone(records, dateStr) });
+  }
+
   out.push({
     id: 'checkin',
     label: 'Evening check-in',
     hour: CHECKIN_HOUR,
-    done: !!(rec.checkin && rec.checkin.symptom),
+    done: !!(rec.checkin && rec.checkin.symptom && (!rehab || rec.checkin.achilles)),
   });
 
   return out;
@@ -708,6 +1088,9 @@ export function weekStats(configDoc, records, dateStr, todayStr) {
     avgPrev,
     weekChange: avgNow != null && avgPrev != null ? avgNow - avgPrev : null,
     trend: trendSlope(records, end),
+    steps: stepPace(configDoc, records, days.length ? days[days.length - 1] : dateStr),
+    achillesWorse: achillesWorseDays(records, dateStr).length,
+    rehabDays: weekDays(dateStr).filter((d) => d <= todayStr && rehabDone(records, d)).length,
   };
 }
 
@@ -743,6 +1126,12 @@ export function weeklyRecommendation(configDoc, records, dateStr, todayStr) {
     return 'Targets are fine; adherence is the gap. Fix the meals before changing any number.';
   }
   const trend = stats.trend;
+  const config = configFor(configDoc, end);
+  // Steps before food. A stall on 6,000 steps is a step problem, and cutting
+  // calories against it spends the lever that was still free.
+  if (stats.avgSteps != null && stats.avgSteps < config.targets.stepTarget && trend != null && trend > -0.15) {
+    return `Steps are short of target — that's the first lever. Hit ${config.targets.stepTarget.toLocaleString('en-US')} before cutting food.`;
+  }
   if (trend != null && trend > -0.15) {
     if (consecutiveFlatWeeks(configDoc, records, dateStr) >= 3) {
       return "Flat for three weeks. Cut 150 calories — don't add cardio.";
@@ -770,7 +1159,7 @@ export function weekThreeNote(configDoc, records, dateStr) {
   if (day < 14 || day > 24) return null;
   const trend = trendSlope(records, dateStr);
   if (trend == null || trend <= -0.15) return null;
-  return 'New training holds water. Waist and resting heart rate are the honest readings right now.';
+  return 'New training and creatine hold water. Waist and resting heart rate are the honest readings right now.';
 }
 
 // ---------- CSV (§6.4) ----------
@@ -780,8 +1169,9 @@ const DAY_COLUMNS = [
   'meal_breakfast', 'meal_lunch', 'meal_snack', 'meal_dinner', 'meal_dessert',
   'modifiers',
   'checkin_energy', 'checkin_hunger', 'checkin_soreness', 'checkin_stress',
-  'checkin_symptom', 'checkin_interfered',
+  'checkin_symptom', 'checkin_interfered', 'checkin_achilles',
   'cardio_mode', 'cardio_minutes', 'cardio_avgHr', 'cardio_completedAt',
+  'rehab_heelRaisesDone', 'rehab_loadUsed',
 ];
 
 function csvEscape(v) {
@@ -821,13 +1211,16 @@ export function daysToCsv(records) {
   for (const r of Object.values(records).sort((a, b) => a.date.localeCompare(b.date))) {
     const c = r.checkin || {};
     const cd = r.cardio || {};
+    const rh = r.rehab || {};
     lines.push(csvLine([
       r.date, r.schemaVersion, r.planVersion, r.weight, r.sleepMinutes, r.steps,
       r.meals && r.meals.breakfast, r.meals && r.meals.lunch, r.meals && r.meals.snack,
       r.meals && r.meals.dinner, r.meals && r.meals.dessert,
       Object.entries(r.modifiers || {}).filter(([, v]) => v).map(([k]) => k).join(';'),
-      c.energy, c.hunger, c.soreness, c.stress, c.symptom, c.interfered,
+      c.energy, c.hunger, c.soreness, c.stress, c.symptom, c.interfered, c.achilles,
       cd.mode, cd.minutes, cd.avgHr, cd.completedAt,
+      rh.heelRaisesDone == null ? undefined : (rh.heelRaisesDone ? 'yes' : 'no'),
+      rh.loadUsed,
     ]));
   }
   return lines.join('\n') + '\n';
@@ -867,7 +1260,17 @@ export function csvToDays(text) {
     }
     const sym = str(get('checkin_symptom')); if (sym) checkin.symptom = sym;
     const intf = str(get('checkin_interfered')); if (intf) checkin.interfered = intf;
+    const ach = str(get('checkin_achilles')); if (ach) checkin.achilles = ach;
     if (Object.keys(checkin).length) rec.checkin = checkin;
+    // Rehab round-trips only when it was actually logged: an absent column
+    // must import as "no record", never as a day the raises were skipped.
+    const hr = str(get('rehab_heelRaisesDone'));
+    const rl = num(get('rehab_loadUsed'));
+    if (hr || rl != null) {
+      rec.rehab = {};
+      if (hr) rec.rehab.heelRaisesDone = hr === 'yes' || hr === 'true';
+      if (rl != null) rec.rehab.loadUsed = rl;
+    }
     const cmode = str(get('cardio_mode'));
     if (cmode) {
       rec.cardio = { mode: cmode, minutes: num(get('cardio_minutes')) || 0 };
@@ -880,20 +1283,21 @@ export function csvToDays(text) {
 }
 
 export function workoutsToCsv(records) {
-  const lines = [csvLine(['date', 'sessionId', 'minutes', 'completedAt', 'exerciseId', 'setIndex', 'weight', 'reps', 'mark'])];
+  const lines = [csvLine(['date', 'sessionId', 'minutes', 'completedAt', 'exerciseId', 'setIndex', 'weight', 'reps', 'mark', 'chinPhase', 'chinUnassisted', 'chinNote'])];
   for (const r of Object.values(records).sort((a, b) => a.date.localeCompare(b.date))) {
     if (!r.workout) continue;
     const w = r.workout;
     const marks = w.marks || {};
     const keys = Object.keys(w.sets || {});
+    const chin = [w.chinPhase, w.chinUnassisted, w.chinBandOrNegatives];
     if (!keys.length) {
-      lines.push(csvLine([r.date, w.sessionId, w.minutes, w.completedAt, '', '', '', '', '']));
+      lines.push(csvLine([r.date, w.sessionId, w.minutes, w.completedAt, '', '', '', '', '', ...chin]));
       continue;
     }
     for (const key of keys.sort()) {
       const [exId, setIdx] = key.split(':');
       const s = w.sets[key];
-      lines.push(csvLine([r.date, w.sessionId, w.minutes, w.completedAt, exId, setIdx, s.weight, s.reps, marks[exId]]));
+      lines.push(csvLine([r.date, w.sessionId, w.minutes, w.completedAt, exId, setIdx, s.weight, s.reps, marks[exId], ...chin]));
     }
   }
   return lines.join('\n') + '\n';
@@ -911,6 +1315,9 @@ export function csvToWorkouts(text) {
       out[date] = { sessionId: get('sessionId'), sets: {} };
       const min = get('minutes'); if (min !== '') out[date].minutes = Number(min);
       const at = get('completedAt'); if (at !== '') out[date].completedAt = at;
+      const cp = get('chinPhase'); if (cp) out[date].chinPhase = Number(cp);
+      const cu = get('chinUnassisted'); if (cu) out[date].chinUnassisted = Number(cu);
+      const cn = get('chinNote'); if (cn) out[date].chinBandOrNegatives = cn;
     }
     const exId = get('exerciseId');
     if (exId) {
@@ -928,6 +1335,26 @@ export function csvToWorkouts(text) {
     }
   }
   return out;
+}
+
+// The clinician timeline: one row per day the Achilles was rehabbed or
+// reported on, plus the muscle-symptom days. Its value is being complete and
+// exportable, so it ships as its own file rather than as a screen to read off.
+export function clinicianToCsv(records) {
+  const lines = [csvLine(['date', 'achilles_vs_yesterday', 'heel_raises_done', 'rehab_load', 'muscle_symptom', 'interfered_with_training'])];
+  const rows = Object.values(records)
+    .filter((r) => (r.checkin && (r.checkin.achilles || (r.checkin.symptom && r.checkin.symptom !== 'None')))
+      || (r.rehab && (r.rehab.heelRaisesDone || r.rehab.loadUsed != null)))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  for (const r of rows) {
+    const c = r.checkin || {};
+    const rh = r.rehab || {};
+    lines.push(csvLine([
+      r.date, c.achilles, rh.heelRaisesDone ? 'yes' : (rh.heelRaisesDone === false ? 'no' : ''),
+      rh.loadUsed, c.symptom && c.symptom !== 'None' ? c.symptom : '', c.interfered,
+    ]));
+  }
+  return lines.join('\n') + '\n';
 }
 
 export function measurementsToCsv(measurements) {

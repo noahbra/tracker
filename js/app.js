@@ -10,7 +10,11 @@ const KEYS = { days: 'tracker.days', measurements: 'tracker.measurements', meta:
 
 // schemaVersion migrations, applied in order at load (§6.3). v1 is current.
 const MIGRATIONS = [
-  // { to: 2, day(rec) { ... return rec; }, measurement(m) { ... return m; } },
+  // v2 added the Achilles rehab record, the morning Achilles answer, the
+  // chin-up phase stamp, and accepted exercise variations. Every one of them is
+  // an optional field on a day that did not have it, so no existing record
+  // changes shape — the migration only moves the marker forward.
+  { to: 2 },
 ];
 
 function migrate(records, measurements, meta) {
@@ -138,15 +142,20 @@ function demoData() {
       steps: 5200 + (i * 731) % 4500,
       meals: { breakfast: 'eaten', lunch: 'eaten', snack: i % 5 === 3 ? 'skipped' : 'eaten', dinner: 'eaten', dessert: i % 4 === 2 ? 'modified' : 'eaten' },
       modifiers: {},
-      checkin: { energy: 1 + (i % 2), hunger: 1, soreness: i % 3 === 0 ? 1 : 2, stress: 1, symptom: i === 9 ? 'Mild soreness' : 'None' },
+      checkin: {
+        energy: 1 + (i % 2), hunger: 1, soreness: i % 3 === 0 ? 1 : 2, stress: 1,
+        symptom: i === 9 ? 'Mild soreness' : 'None',
+        achilles: i === 11 ? 'worse' : i % 4 === 0 ? 'better' : 'same',
+      },
+      rehab: { heelRaisesDone: i % 6 !== 4, loadUsed: i < 8 ? 0 : 10 },
     };
     const plan = L.dayPlan(state.configDoc, d);
     if (plan.type === 'lift' && !plan.suppressed && i !== weights.length - 1) {
       const sessionId = L.nextLiftId(records);
-      const exs = L.configFor(state.configDoc, d).sessions[sessionId].exercises;
+      const exs = L.sessionExercises(state.configDoc, records, sessionId, d);
       const sets = {};
       for (const ex of exs) {
-        const base = ex.startWeight != null ? ex.startWeight : 50;
+        const base = ex.startWeight != null ? ex.startWeight : 0;
         for (let s = 0; s < ex.sets; s++) sets[`${ex.id}:${s}`] = { weight: base + Math.floor(i / 7) * 5, reps: ex.reps };
       }
       r.workout = { sessionId, sets, minutes: 52 + (i % 3) * 3, completedAt: `${d}T07:40:00` };
@@ -217,6 +226,7 @@ function sessionName(offered) {
   const config = activeConfig();
   if (offered.kind === 'lift') return config.sessions[offered.sessionId].name;
   if (offered.kind === 'walk') return 'Walk';
+  if (offered.mode === 'hike') return 'Hike';
   return offered.mode === 'intervals' ? 'Intervals' : 'Zone 2';
 }
 
@@ -254,7 +264,7 @@ function renderToday() {
     </div>
     <div class="sub num">${day < 1 ? `Starts ${startLabel()}` : `Day ${day} · Week ${week}`} · ${toGo != null ? toGo.toFixed(1) : EMDASH} lb to go</div>
     ${isToday() ? '' : `<button class="backfill-flag" data-act="day-today">Filling in a past day ${EMDASH} back to today</button>`}
-    <div class="gauge" role="img" aria-label="${gauge.filter((g) => g.done).length} of 6 logged">
+    <div class="gauge" role="img" aria-label="${gauge.filter((g) => g.done).length} of ${gauge.length} logged">
       ${gauge.map((g) => `<div class="seg${g.done ? ' done' : ''}" title="${g.label}"></div>`).join('')}
     </div>
   </header>`;
@@ -267,6 +277,8 @@ function renderToday() {
 
   // focus card
   const stepsLeft = plan.stepTarget - (rec.steps || 0);
+  const pace = L.stepPace(state.configDoc, state.records, t);
+  const onPace = !!(pace && pace.onPace && rec.steps != null);
   const focusLines = [];
   if (offered.kind !== 'rest' && !plan.suppressed) {
     let nm = sessionName(offered);
@@ -275,7 +287,8 @@ function renderToday() {
   }
   focusLines.push(`${EMDASH} Eat <span class="num">${fmtInt(plan.calorieTarget)}</span> cal · <span class="num">${plan.proteinTarget}</span> g protein`);
   if (rec.steps == null) focusLines.push(`${EMDASH} Walk <span class="num">${fmtInt(plan.stepTarget)}</span> steps`);
-  else if (stepsLeft > 0) focusLines.push(`${EMDASH} Walk <span class="num">${fmtInt(stepsLeft)}</span> more steps`);
+  else if (stepsLeft > 0 && !onPace) focusLines.push(`${EMDASH} Walk <span class="num">${fmtInt(stepsLeft)}</span> more steps`);
+  else if (stepsLeft > 0) focusLines.push(`${EMDASH} Short today, week on pace at <span class="num">${fmtInt(pace.total)}</span>`);
   html += `<section class="card focus" id="sec-focus">
     <span class="label">Today's focus</span>
     ${focusLines.map((l) => `<div class="line">${l}</div>`).join('')}
@@ -314,6 +327,11 @@ function renderToday() {
   // metric tiles
   const sleepPct = rec.sleepMinutes != null ? Math.min(1, rec.sleepMinutes / plan.sleepTargetMinutes) : 0;
   const stepPct = Math.min(1, (rec.steps || 0) / plan.stepTarget);
+  // The step segment clears on the daily target or on the week being on pace,
+  // so the tile shows both numbers rather than nagging about a covered day.
+  const weekSteps = pace
+    ? `<div class="of num${onPace ? ' good' : ''}">week ${fmtInt(pace.total)} of ${fmtInt(pace.weekly)}</div>`
+    : '';
   const calPct = Math.min(1, nut.cal / plan.calorieTarget);
   const proPct = Math.min(1, nut.protein / plan.proteinTarget);
   html += `<div class="tiles" id="sec-tiles">
@@ -321,6 +339,7 @@ function renderToday() {
       <span class="label">Steps</span>
       <div class="value num${rec.steps == null ? ' empty' : ''}">${rec.steps != null ? fmtInt(rec.steps) : EMDASH}</div>
       <div class="of num">of ${fmtInt(plan.stepTarget)}</div>
+      ${weekSteps}
       <div class="bar"><div class="fill" style="width:${(stepPct * 100).toFixed(1)}%"></div></div>
     </button>
     <button class="tile" data-act="sheet" data-sheet="sleep">
@@ -343,8 +362,19 @@ function renderToday() {
     </div>
   </div>`;
 
+  // A desk-job habit, not a session. It is one quiet line and it can be turned
+  // off; a web app cannot raise a notification while it is closed, and
+  // pretending otherwise would be the wrong kind of promise.
+  const mb = (config.habits || {}).movementBreak;
+  if (mb && state.meta.movementBreaks !== false) {
+    html += `<div class="habit-line"><span class="label">Every ${mb.everyMinutes} min sitting</span> ${esc(mb.text)} <span class="ref-note">${esc(mb.why || '')}</span></div>`;
+  }
+
   // training
   html += renderTraining(rec, plan, offered);
+
+  // Achilles rehab — daily, and deliberately outside the strength days (§9.1)
+  html += renderRehab(rec);
 
   // meals
   html += renderMeals(rec, plan, config);
@@ -403,7 +433,7 @@ function measuredThisWeek(t) {
 function liftCard(rec, config, idAttr) {
   const session = config.sessions[rec.workout.sessionId];
   if (!session) return '';
-  const { progressed, allHit } = workoutSummary(rec, session);
+  const { progressed, allHit } = workoutSummary(rec, L.sessionExercises(state.configDoc, state.records, rec.workout.sessionId, rec.date));
   const done = !!rec.workout.completedAt;
   return `<section class="card training-done"${idAttr}>
     <span class="label">Training ${EMDASH} ${esc(session.name)} ${done ? 'complete' : 'in progress'}</span>
@@ -438,9 +468,10 @@ function renderTraining(rec, plan, offered) {
     const done = rec.workout && rec.workout.completedAt;
     if (!done) {
       const session = config.sessions[offered.sessionId];
+      const count = L.sessionExercises(state.configDoc, state.records, offered.sessionId, viewStr()).length;
       inner = `<button class="prompt"${secId} data-act="open-logger">
         <span class="title">Start ${esc(session.name)}</span>
-        <span class="sub">${offered.pushedFrom ? `Pushed from ${offered.pushedFrom}` : `${session.exercises.length} exercises · about 55 min`}</span>
+        <span class="sub">${offered.pushedFrom ? `Pushed from ${offered.pushedFrom}` : `${count} exercises · about ${(config.schedule[String(L.weekday(viewStr()))] || {}).minutes || 55} min`}</span>
       </button>`;
     } else {
       inner = liftCard(rec, config, secId);
@@ -457,6 +488,10 @@ function renderTraining(rec, plan, offered) {
         subParts.push(`HR ${config.targets.zone2HrRange[0]}–${config.targets.zone2HrRange[1]}`);
         if (config.zone2Guidance) subParts.push(config.zone2Guidance);
       }
+      // Steps are never inferred from a cardio session. What a bike does for
+      // the step count is nothing, and the card says so rather than quietly
+      // crediting minutes as movement.
+      if (plan.schedule.stepsNote) subParts.push(plan.schedule.stepsNote);
       inner = `<button class="prompt"${secId} data-act="sheet" data-sheet="cardio">
         <span class="title">Log ${esc(nm)}</span>
         <span class="sub">${esc(subParts.join(' · '))}</span>
@@ -477,13 +512,13 @@ function renderTraining(rec, plan, offered) {
   return orphan ? liftCard(rec, config, ' id="sec-training"') + inner : inner;
 }
 
-function workoutSummary(rec, session) {
+function workoutSummary(rec, exercises) {
   // progressed: exercises whose max load today exceeds max load last time.
   const prior = { ...state.records };
   delete prior[rec.date];
   let progressed = 0;
   let allHit = true;
-  for (const ex of session.exercises) {
+  for (const ex of exercises) {
     let todayMax = null;
     let logged = 0;
     for (let i = 0; i < ex.sets; i++) {
@@ -502,6 +537,60 @@ function workoutSummary(rec, session) {
     }
   }
   return { progressed, allHit };
+}
+
+// ---------- Achilles rehab (§9.1) ----------
+
+// Its own card, run daily, sitting outside the strength days on purpose: it is
+// the thing that has to happen whether or not there was a session, and burying
+// it inside a lift day would mean it stops on rest days.
+function renderRehab(rec) {
+  const config = activeConfig();
+  const cfg = L.rehabConfig(config);
+  if (!cfg) return '';
+  const t = viewStr();
+  const done = !!(rec.rehab && rec.rehab.heelRaisesDone);
+  const load = L.rehabLoad(state.configDoc, state.records, t);
+  const pull = L.achillesPullBack(state.configDoc, state.records, t);
+  const cleared = state.meta.achillesClinicianCleared;
+  const used = rec.rehab && rec.rehab.loadUsed != null ? rec.rehab.loadUsed : null;
+  const loadText = (v) => (v ? `${v} ${cfg.loadUnit || 'lb'}` : 'bodyweight');
+
+  let html = `<section class="card rehab" id="sec-rehab"><span class="label">Achilles rehab</span>`;
+
+  // The clinician flag is a gate, not a notice: bilateral and spontaneous is
+  // the presentation that wants a look before it gets self-managed. It stays
+  // until it is marked cleared, and there is no way to tap past it.
+  if (!cleared) {
+    html += `<div class="medical-notice">${esc(cfg.medicalFlag.text)}
+      <button class="notice-action" data-act="achilles-cleared">${esc(cfg.medicalFlag.action)}</button></div>`;
+  }
+
+  html += `<div class="rehab-move">${cfg.movements.map((m) =>
+    `<div class="line"><span>${esc(m.name)}</span><span class="num">${m.sets} × ${m.reps}</span></div>`).join('')}</div>
+    <div class="ref-note">${esc(cfg.technique)}</div>`;
+
+  if (pull) {
+    // Order matters more than the fact of pulling back: the rehab load is the
+    // last thing to come down, because it is the thing rebuilding the tendon.
+    html += `<div class="followup"><span class="label">Morning reading was worse</span>
+      <div class="pull-text">${esc(pull.text)}</div>
+      <ol class="pull-order">${pull.order.map((o) => `<li>${esc(o)}</li>`).join('')}</ol>
+      <div class="pull-text">${load.from ? `Then the heel raises: ${esc(loadText(load.suggested))}, down from ${esc(loadText(load.from))}.` : 'The heel raises are already at bodyweight. Keep doing them; they are what rebuilds the tendon.'}</div>
+    </div>`;
+  }
+
+  html += `<div class="rehab-row">
+    <button class="rehab-check${done ? ' done' : ''}" data-act="rehab-toggle" aria-label="Heel raises ${done ? 'done' : 'not done'}"></button>
+    <button class="rehab-main" data-act="sheet" data-sheet="rehab">
+      <span class="rehab-name">${done ? 'Done today' : 'Both variations, 3 × 15'}</span>
+      <span class="meal-sub num">${done && used != null ? `${loadText(used)} used` : `${loadText(load.suggested)} suggested`}</span>
+    </button>
+    <button class="meal-change" data-act="sheet" data-sheet="rehab">Load</button>
+  </div>
+  <div class="ref-note">${esc(cfg.painRule)} ${esc(cfg.cadenceNote)}</div>
+  </section>`;
+  return html;
 }
 
 // ---------- meals section ----------
@@ -570,6 +659,20 @@ function renderCheckin(rec) {
       ${row.opts.map((o, i) => `<button class="chip${c[row.key] === i ? ' sel' : ''}" data-act="chip" data-key="${row.key}" data-val="${i}">${o}</button>`).join('')}
     </div></div>`;
   }
+  // The exercise is judged by the next morning, not by how it felt at the
+  // time, so this reading is the one that governs the rehab load.
+  const rehab = L.rehabConfig(activeConfig());
+  if (rehab) {
+    html += `<hr class="rule">`;
+    html += `<div class="chip-row"><span class="label">${esc(rehab.morningQuestion)}</span><div class="chips">
+      ${rehab.morningOptions.map((o) => `<button class="chip${c.achilles === o ? ' sel' : ''}${o === 'worse' ? ' alert-chip' : ''}" data-act="achilles" data-val="${esc(o)}">${esc(o[0].toUpperCase() + o.slice(1))}</button>`).join('')}
+    </div></div>`;
+    if (c.achilles === 'worse') {
+      html += `<div class="followup"><span class="label">Pull back in this order</span>
+        <ol class="pull-order">${(rehab.pullBackOrder || []).map((o) => `<li>${esc(o)}</li>`).join('')}<li>Then reduce the heel-raise load.</li></ol></div>`;
+    }
+  }
+
   html += `<hr class="rule">`;
   html += `<div class="chip-row"><span class="label">Muscle symptoms</span><div class="chips">
     ${SYMPTOMS.map((s) => `<button class="chip${c.symptom === s ? ' sel' : ''}${ALERT_SYMPTOMS.includes(s) ? ' alert-chip' : ''}" data-act="symptom" data-val="${esc(s)}">${s}</button>`).join('')}
@@ -596,6 +699,7 @@ function renderWeek() {
   const stats = L.weekStats(state.configDoc, state.records, t, today);
   const rec7 = L.weeklyRecommendation(state.configDoc, state.records, t, today);
   const sympDays = L.symptomDays(state.records, t);
+  const achWorse = L.achillesWorseDays(state.records, t);
   const dayLetters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
   const weekOf = L.parseDate(L.weekStart(t)).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
@@ -638,15 +742,18 @@ function renderWeek() {
       <div><span class="num">${stats.sessionsDone} / ${stats.sessionsPlanned}</span><span class="label">Sessions</span></div>
       <div><span class="num${proMet ? ' good' : ''}">${stats.avgProtein != null ? `${fmtInt(stats.avgProtein)} g` : EMDASH}</span><span class="label">Avg protein</span></div>
       <div><span class="num">${stats.avgCalories != null ? fmtInt(stats.avgCalories) : EMDASH}</span><span class="label">Avg calories</span></div>
-      <div><span class="num">${stats.avgSteps != null ? fmtInt(stats.avgSteps) : EMDASH}</span><span class="label">Avg steps</span></div>
+      <div><span class="num${stats.steps && stats.steps.onPace ? ' good' : ''}">${stats.steps ? fmtInt(stats.steps.total) : EMDASH}</span><span class="label">Steps this week</span></div>
       <div><span class="num">${stats.avgSleep != null ? fmtSleep(stats.avgSleep) : EMDASH}</span><span class="label">Avg sleep</span></div>
     </div>
+    <div class="ref-note">Achilles rehab logged ${stats.rehabDays} of ${stats.days.length} day${stats.days.length === 1 ? '' : 's'} so far this week.</div>
+    ${stats.steps ? `<div class="ref-note">Steps are judged by the week: ${fmtInt(stats.steps.total)} of ${fmtInt(stats.steps.weekly)}, ${stats.steps.onPace ? 'on pace' : `${fmtInt(Math.max(0, stats.steps.required - stats.steps.total))} behind pace`} through ${stats.steps.elapsed} day${stats.steps.elapsed > 1 ? 's' : ''}. A hike banks against a quiet day.</div>` : ''}
     <div class="ref-note">Protein is judged here, as a weekly average: aim ${proGoal} g. Weekday dinners bank the surplus that covers the weekend.${stats.nutritionDays ? ` Averaged over ${stats.nutritionDays} logged day${stats.nutritionDays > 1 ? 's' : ''}.` : ''}</div>
   </section>`;
 
   html += `<section class="card"><span class="label">Recommendation</span>
     <div class="recommendation">${esc(rec7)}</div>
     ${sympDays.length ? `<div class="rec-symptom">Muscle symptoms logged ${sympDays.length} day${sympDays.length > 1 ? 's' : ''} this week. Worth mentioning at your next appointment.</div>` : ''}
+    ${achWorse.length ? `<div class="rec-symptom">Achilles came back worse on ${achWorse.length} morning${achWorse.length > 1 ? 's' : ''} this week. Worth mentioning at your next appointment.</div>` : ''}
   </section>`;
 
   // Backup staleness (§6.4): this storage is local-only and iOS can evict it.
@@ -685,19 +792,24 @@ function describeSched(entry, config) {
 function exScheme(e) {
   return e.scheme || `${e.sets} × ${e.reps}`;
 }
-// Where the lift starts and where it is going. The unit is printed once, and
-// only when the plan has not spelled the endpoints out itself ("BW / 90",
-// "60 / hand"), which it does wherever a bare number would be ambiguous.
+// Where the lift starts, and where it is going when the plan says. This plan
+// mostly does not: the goals moved off barbell numbers onto the scale and the
+// mirror, so an exercise with no destination shows its starting point alone
+// rather than an em dash standing in for a number that was deliberately cut.
 function exRange(e) {
-  const start = e.startLabel || (e.startWeight != null ? String(e.startWeight) : EMDASH);
-  const goal = e.goalLabel || (e.goal != null ? String(e.goal) : EMDASH);
+  const start = e.startLabel || (e.startWeight != null ? String(e.startWeight) : null);
+  const goal = e.goalLabel || (e.goal != null ? String(e.goal) : null);
   const unit = !e.startLabel && !e.goalLabel && e.unit ? ` ${e.unit}` : '';
-  return `${start} → ${goal}${unit}`;
+  if (!start) return '';
+  return goal ? `${start} → ${goal}${unit}` : `from ${start}${unit}`;
 }
-function exProgressionNote(e) {
+function exProgressionNote(e, config) {
   const parts = [];
-  parts.push(e.incrementNote
-    || (e.taperIncrement != null ? `+${e.increment}, then +${e.taperIncrement} over ${e.taperAbove}` : `+${e.increment} ${e.unit}`));
+  const rule = config ? L.progressionRule(config, e) : null;
+  if (e.incrementNote) parts.push(e.incrementNote);
+  else if (e.taperIncrement != null) parts.push(`+${e.increment}, then +${e.taperIncrement} over ${e.taperAbove}`);
+  else if (rule && rule.rule) parts.push(rule.rule);
+  else if (e.increment != null) parts.push(`+${e.increment} ${e.unit}`);
   if (e.goalWeeks) parts.push(`~${e.goalWeeks} wks`);
   if (e.pair) parts.push('paired');
   return parts.join(' · ');
@@ -723,12 +835,16 @@ function renderReference() {
       <tr><td>Version</td><td class="num">${config.planVersion} · ${esc(config.label || '')}</td></tr>
       <tr><td>Program start</td><td class="num">${fmtRefDate(L.programStart(state.configDoc))}</td></tr>
       <tr><td>Weight</td><td class="num">${tg.weightStart} → ${tg.weightGoal} lb</td></tr>
-      <tr><td>Protein</td><td class="num">${tg.proteinWeeklyAvg != null ? `${tg.proteinWeeklyAvg} g — weekly average` : `${tg.proteinFloor} g / day`}</td></tr>
+      <tr><td>Protein</td><td class="num">${tg.proteinWeeklyAvg != null ? `${tg.proteinWeeklyAvg} g — weekly average${tg.proteinAcceptableFloor != null ? `, ${tg.proteinAcceptableFloor} g floor` : ''}` : `${tg.proteinFloor} g / day`}</td></tr>
       ${tg.calorieDailyTarget != null ? `<tr><td>Calories</td><td class="num">${fmtInt(tg.calorieDailyTarget)} / day target</td></tr>` : ''}
       ${tg.satFatBudget != null ? `<tr><td>Saturated fat</td><td class="num">under ${tg.satFatBudget} g / day</td></tr>` : ''}
-      <tr><td>Steps</td><td class="num">${fmtInt(tg.stepTarget)} / day (ramped in early weeks)</td></tr>
+      <tr><td>Steps</td><td class="num">${fmtInt(tg.stepTarget)} / day${tg.stepWeeklyTarget != null ? `, ${fmtInt(tg.stepWeeklyTarget)} / week` : ''} (ramped in early weeks)</td></tr>
       <tr><td>Sleep</td><td class="num">${fmtSleep(tg.sleepTargetMinutes)}</td></tr>
-    </table></section>`;
+    </table>
+    ${(config.goals || []).length ? `<span class="label" style="display:block;margin-top:14px">What it is for</span>
+      <ul class="ref-list">${config.goals.map((g) => `<li>${esc(g)}</li>`).join('')}</ul>
+      ${config.goalNote ? `<div class="ref-note">${esc(config.goalNote)}</div>` : ''}` : ''}
+    </section>`;
 
   // ---- dietary protocol ----
   // Two tables, because the plan has two halves: blocks that never change, and
@@ -806,17 +922,91 @@ function renderReference() {
   // Start → goal is the whole point of the table: every load in the plan is a
   // waypoint between two numbers, and the app can only suggest the next step if
   // the destination is written down.
-  for (const [, session] of Object.entries(config.sessions)) {
+  const chinNow = L.chinupState(state.configDoc, state.records, t);
+  for (const [sid, session] of Object.entries(config.sessions)) {
+    const warm = [(config.warmup || {}).all, (config.warmup || {})[sid]].filter(Boolean).join(' ');
     html += `<section class="card"><span class="label">${esc(session.name)}${session.day ? ` · ${esc(session.day)}` : ''}</span>
       <table class="ref-table">
-        <tr class="ref-head"><th>Exercise · start → goal</th><th class="r">Sets × reps</th></tr>
-        ${session.exercises.map((e) => `<tr>
-          <td>${esc(e.name)}
-            <div class="ex-goal num">${esc(exRange(e))}</div>
-            <div class="ref-note">${esc(exProgressionNote(e))}</div></td>
-          <td class="num r">${esc(exScheme(e))}${e.rest ? `<div class="ref-note">rest ${esc(e.rest)}</div>` : ''}</td>
+        <tr class="ref-head"><th>Exercise</th><th class="r">Sets × reps</th></tr>
+        ${session.exercises.map((e) => {
+          // The chin-up is a phase, not a load, so the table names the phase
+          // in force and leaves the detail to its own section below.
+          if (e.phased === 'chinup' && chinNow) {
+            return `<tr><td>${esc(e.name)}
+              <div class="ex-goal num">phase ${chinNow.phase} of ${(config.chinup.phases || []).length} · ${esc(chinNow.cfg.name)}</div>
+              <div class="ref-note">${esc(chinNow.detail || '')}</div></td>
+              <td class="num r">${esc(chinNow.cfg.prescription)}</td></tr>`;
+          }
+          const range = exRange(e);
+          return `<tr>
+            <td>${esc(e.name)}
+              ${range ? `<div class="ex-goal num">${esc(range)}</div>` : ''}
+              <div class="ref-note">${esc(exProgressionNote(e, config))}</div>
+              ${e.note ? `<div class="ref-note">${esc(e.note)}</div>` : ''}</td>
+            <td class="num r">${esc(exScheme(e))}${e.rest ? `<div class="ref-note">rest ${esc(e.rest)}</div>` : ''}</td>
+          </tr>`;
+        }).join('')}
+      </table>
+      ${session.note ? `<div class="ref-note" style="margin-top:10px">${esc(session.note)}</div>` : ''}
+      ${warm ? `<span class="label" style="display:block;margin-top:14px">Warm-up</span><div class="ref-note">${esc(warm)}</div>` : ''}
+    </section>`;
+  }
+
+  // ---- chin-up progression, all three phases, current one marked
+  if (config.chinup && (config.chinup.phases || []).length) {
+    html += `<section class="card"><span class="label">Chin-up progression</span>
+      <table class="ref-table">
+        ${config.chinup.phases.map((ph) => `<tr>
+          <td class="nw">Phase ${ph.phase}${chinNow && chinNow.phase === ph.phase ? '<div class="ref-note">current</div>' : ''}</td>
+          <td><strong>${esc(ph.name)}</strong>
+            <div class="ref-note">${esc(ph.prescription)}</div>
+            <div class="ref-note">Advance on: ${esc(ph.advanceLabel)}</div>
+            ${ph.note ? `<div class="ref-note">${esc(ph.note)}</div>` : ''}</td>
         </tr>`).join('')}
-      </table></section>`;
+      </table>
+      <div class="ref-note" style="margin-top:10px">The phase moves when you accept it, not when the app decides. ${esc(config.chinup.moraleNote || '')}</div>
+    </section>`;
+  }
+
+  // ---- Achilles rehab protocol
+  const rehabCfg = L.rehabConfig(config);
+  if (rehabCfg) {
+    html += `<section class="card"><span class="label">Achilles rehab</span>
+      <table class="ref-table">
+        ${rehabCfg.movements.map((m) => `<tr><td>${esc(m.name)}<div class="ref-note">${esc(m.targets)}</div></td><td class="num r">${m.sets} × ${m.reps}</td></tr>`).join('')}
+      </table>
+      <div class="ref-note" style="margin-top:10px">${esc(rehabCfg.technique)}</div>
+      <div class="ref-note">${esc(rehabCfg.progression)}</div>
+      <div class="ref-note">${esc(rehabCfg.painRule)}</div>
+      <div class="ref-note">${esc(rehabCfg.cadenceNote)}</div>
+      <span class="label" style="display:block;margin-top:14px">If the morning comes back worse</span>
+      <ol class="pull-order">${(rehabCfg.pullBackOrder || []).map((o) => `<li>${esc(o)}</li>`).join('')}<li>Then reduce the heel-raise load.</li></ol>
+    </section>`;
+  }
+
+  // ---- step logic, in the plan's own words
+  if (config.stepLogic) {
+    const sl = config.stepLogic;
+    html += `<section class="card"><span class="label">Steps</span>
+      <table class="ref-table">
+        <tr><td>Daily</td><td class="num r">${fmtInt(sl.dailyTarget)}</td></tr>
+        <tr><td>Weekly</td><td class="num r">${fmtInt(sl.weeklyTarget)}</td></tr>
+      </table>
+      <div class="ref-note" style="margin-top:10px">${esc(sl.rule)}</div>
+      <div class="ref-note">${esc(sl.weeklyRule)}</div>
+      <div class="ref-note">${esc(sl.nonStepCardio)}</div>
+      <div class="ref-note">${esc(sl.why)}</div>
+    </section>`;
+  }
+
+  // ---- desk-job habits
+  if (config.habits) {
+    html += `<section class="card"><span class="label">Desk habits</span>
+      <table class="ref-table">
+        ${Object.values(config.habits).map((h) => `<tr><td>${esc(h.text)}<div class="ref-note">${esc(h.why || h.conditional || '')}</div></td>
+          <td class="num r">${h.everyMinutes ? `every ${h.everyMinutes} min` : 'conditional'}</td></tr>`).join('')}
+      </table>
+    </section>`;
   }
   if (config.restGuidance) {
     html += `<section class="card"><span class="label">Rest periods</span><div class="ref-note">${esc(config.restGuidance)}</div></section>`;
@@ -832,7 +1022,18 @@ function renderReference() {
       <tr><td>More than ${p.layoffDays} days off an exercise</td><td>Resume at ${Math.round(p.layoffFactor * 100)}% of last success</td></tr>
       <tr><td>Misses above your last successful load</td><td>Don't count toward deload</td></tr>
       <tr><td>All suggestions</td><td>Round to nearest ${p.roundToNearest} lb; the app suggests, never enforces</td></tr>
-    </table></section>`;
+      ${p.neverGrind ? `<tr><td>Never grind</td><td>${esc(p.neverGrind)}</td></tr>` : ''}
+    </table>
+    ${config.progressionRules ? `<span class="label" style="display:block;margin-top:14px">By exercise</span>
+      <table class="ref-table">
+        ${Object.entries(config.progressionRules).map(([key, r]) => {
+          const users = Object.values(config.sessions).flatMap((se) => se.exercises).filter((e) => e.progressionKey === key).map((e) => e.name);
+          return `<tr><td>${esc(users.join(', ') || key)}<div class="ref-note">${esc(r.note || '')}</div></td>
+            <td class="wrap">${esc(r.rule || '')}</td></tr>`;
+        }).join('')}
+      </table>` : ''}
+    ${config.startLoadNote ? `<div class="ref-note" style="margin-top:12px">${esc(config.startLoadNote)}</div>` : ''}
+    </section>`;
 
   // ---- for your clinician ----
   const avg = L.rollingAverage(state.records, t);
@@ -841,6 +1042,7 @@ function renderReference() {
     .filter((r) => r.checkin && r.checkin.symptom && r.checkin.symptom !== 'None')
     .sort((a, b) => b.date.localeCompare(a.date));
   const measureRows = [...state.measurements].sort((a, b) => b.takenAt.localeCompare(a.takenAt));
+  const achRows = L.achillesTimeline(state.records);
 
   html += `<section class="card"><span class="label">For your clinician</span>
     <table class="ref-table">
@@ -852,6 +1054,11 @@ function renderReference() {
       ? `<table class="ref-table">${symptomRows.map((r) => `<tr><td class="num">${fmtRefDate(r.date)}</td>
           <td${r.checkin.symptom !== 'Mild soreness' ? ' class="ref-alert"' : ''}>${esc(r.checkin.symptom)}${r.checkin.interfered ? `<div class="ref-note">Interfered with training: ${esc(r.checkin.interfered)}</div>` : ''}</td></tr>`).join('')}</table>`
       : `<div class="ref-note">No symptoms logged.</div>`}
+    ${achRows.length ? `<span class="label" style="display:block;margin-top:14px">Achilles log</span>
+      <table class="ref-table">${achRows.map((r) => `<tr><td class="num">${fmtRefDate(r.date)}</td>
+        <td${r.answer === 'worse' ? ' class="ref-alert"' : ''}>${r.answer ? `Morning: ${esc(r.answer)}` : 'No morning reading'}
+          <div class="ref-note">${r.done ? `Heel raises done${r.load ? ` at ${r.load} lb` : ' at bodyweight'}` : 'Heel raises not logged'}</div></td></tr>`).join('')}</table>`
+      : `<span class="label" style="display:block;margin-top:14px">Achilles log</span><div class="ref-note">Nothing logged yet.</div>`}
     <span class="label" style="display:block;margin-top:14px">Measurements</span>
     ${measureRows.length
       ? `<table class="ref-table">${measureRows.map((m) => `<tr><td class="num">${fmtRefDate(m.takenAt)}</td>
@@ -905,6 +1112,18 @@ function sheetHtml(sheet) {
       </div>
       <div class="sheet-actions"><button class="btn ghost" data-act="close-sheet">Cancel</button><button class="btn primary" data-act="save-cardio">Save</button></div>`;
   }
+  if (sheet.kind === 'rehab') {
+    const cfg = L.rehabConfig(config);
+    const load = L.rehabLoad(state.configDoc, state.records, t);
+    const used = rec.rehab && rec.rehab.loadUsed != null ? rec.rehab.loadUsed : load.suggested;
+    return `<span class="label">Achilles rehab</span><h2>Heel raises</h2>
+      <ul class="components">${cfg.movements.map((m) => `<li><span>${esc(m.name)}</span><span class="num">${m.sets} × ${m.reps}</span></li>`).join('')}</ul>
+      <div class="ref-note">${esc(cfg.progression)}</div>
+      <div class="field"><span class="fl label">Load, ${esc(cfg.loadUnit || 'lb')} (0 is bodyweight)</span>
+        <input id="sh-rehab-load" type="text" inputmode="decimal" value="${used != null ? used : ''}" placeholder="0"></div>
+      ${load.reduced ? `<div class="ref-note">Suggested down from ${load.from} after a worse morning.</div>` : ''}
+      <div class="sheet-actions"><button class="btn ghost" data-act="close-sheet">Cancel</button><button class="btn primary" data-act="save-rehab">Log it</button></div>`;
+  }
   if (sheet.kind === 'meal') {
     const meal = L.mealsFor(config, t).find((m) => m.id === sheet.mealId);
     const total = L.mealTotal(meal);
@@ -931,10 +1150,12 @@ function sheetHtml(sheet) {
     const cfg = activeConfig();
     return `<span class="label">Settings</span><h2>Tracker</h2>
       <div class="settings-list">
-        <button class="srow" data-act="export">Export backup<span class="sub">days.csv, workouts.csv, measurements.csv, plan config</span></button>
+        <button class="srow" data-act="export">Export backup<span class="sub">days.csv, workouts.csv, measurements.csv, clinician.csv, plan config ${EMDASH} through the share sheet, so it lands in Files or iCloud</span></button>
         <button class="srow" data-act="import">Import backup<span class="sub">Same files back in; idempotent on date and id.</span></button>
         <div class="srow">Plan<span class="sub num">Version ${cfg.planVersion} · ${esc(cfg.label || '')} · effective ${cfg.effectiveFrom}</span></div>
         <div class="srow">Build<span class="sub num">${esc(activeBuild || 'not cached')}</span></div>
+        <button class="srow" data-act="movement-breaks">Movement breaks<span class="sub">${state.meta.movementBreaks === false ? 'Off' : 'On'} ${EMDASH} a line on Today every ${(cfg.habits && cfg.habits.movementBreak ? cfg.habits.movementBreak.everyMinutes : 45)} min of sitting. This is a web app: it cannot raise a notification while it is closed, so set three repeating iOS Reminders if you want a buzz.</span></button>
+        <div class="srow">Achilles clinician flag<span class="sub">${state.meta.achillesClinicianCleared ? `Marked cleared ${state.meta.achillesClinicianCleared}` : 'Open — the rehab card shows it until you mark it cleared'}</span></div>
         <div class="srow">Edit the plan<span class="sub">Edit config/plan.json in the repo. A revision is a new planVersion with a new effectiveFrom; history stays valued under the version in force when it was logged.</span></div>
         <button class="srow" data-act="wipe" style="color:var(--alert)">Erase all data<span class="sub">Everything local to this phone. Export first.</span></button>
       </div>
@@ -965,9 +1186,76 @@ function renderOverlay() {
 function ensureWorkout() {
   const rec = getRec();
   if (!rec.workout) {
-    rec.workout = { sessionId: state.logger.sessionId, sets: {} };
+    rec.workout = { sessionId: (state.logger && state.logger.sessionId) || L.nextLiftId(state.records), sets: {} };
   }
   return rec.workout;
+}
+
+// The chin-up card. One phase is shown, never all three: the app works out
+// which phase the history puts you in and shows that one's prescription, its
+// trigger, and how close the trigger is. Meeting a trigger PROMPTS — the phase
+// only moves when the user accepts it.
+function chinHeader(chin) {
+  if (!chin) return '';
+  const c = chin.cfg;
+  const pct = (chin.progress * 100).toFixed(1);
+  let html = `<div class="phase-head">
+    <div class="ex-head"><span class="name">Chin-up ${EMDASH} ${esc(c.name)}</span><span class="scheme num">Phase ${chin.phase}</span></div>
+    <div class="ex-cue">${esc(c.prescription)}</div>
+    <div class="phase-bar">
+      <div class="bar"><div class="fill" style="width:${pct}%"></div></div>
+      <div class="of num">${esc(chin.detail || '')} ${EMDASH} trigger: ${esc(c.advanceLabel)}</div>
+    </div>`;
+  if (chin.met && chin.next) {
+    html += `<button class="phase-advance" data-act="chin-advance" data-phase="${chin.next.phase}">
+      Trigger met. Move to phase ${chin.next.phase}, ${esc(chin.next.name.toLowerCase())}?</button>`;
+  }
+  if (chin.dueTest) {
+    html += `<div class="ex-cue done">Two weeks since the last test. Try one unassisted chin-up and log it below.</div>`;
+  }
+  if (c.note) html += `<div class="ref-note">${esc(c.note)}</div>`;
+  if (chin.phase === 1 && chin.moraleNote) html += `<div class="ref-note">${esc(chin.moraleNote)}</div>`;
+  html += `</div>`;
+  return html;
+}
+
+// One logged set, in the shape the exercise is actually measured in: load ×
+// reps for most, reps alone for bodyweight, seconds for a hold. A bodyweight
+// set reads BW rather than 0, which is a weight nobody lifted.
+function setRowHtml(e, i, s, prog, editing) {
+  const key = `${e.id}:${i}`;
+  const entry = e.entry || 'weightReps';
+  if (s && !editing) {
+    const val = entry === 'seconds'
+      ? `${s.reps} s`
+      : entry === 'reps' || entry === 'barWork'
+        ? `${s.reps} reps`
+        : `${s.weight ? s.weight : 'BW'} <span class="x">×</span> ${s.reps}`;
+    return `<button class="set-row compact" data-act="edit-set" data-key="${key}">
+      <span class="idx num">${i + 1}</span>
+      <span class="val num">${val}</span>
+    </button>`;
+  }
+  // The value in the box is a real suggestion, not a placeholder: the plan's
+  // seeded start load on a fresh exercise, the progression's number after that.
+  const repTarget = prog.reps != null ? prog.reps : e.reps;
+  const rVal = s ? s.reps : '';
+  if (entry === 'reps' || entry === 'seconds' || entry === 'barWork') {
+    return `<div class="set-row" data-key="${key}">
+      <span class="idx num">${i + 1}</span>
+      <input type="text" inputmode="numeric" class="reps wide" placeholder="${repTarget}" value="${rVal}" aria-label="${entry === 'seconds' ? 'seconds' : 'reps'}">
+      <span class="times">${entry === 'seconds' ? 'sec' : 'reps'}</span>
+      <button class="save-set" data-act="save-set" data-key="${key}" data-ex="${e.id}">Log</button>
+    </div>`;
+  }
+  const wVal = s ? s.weight : (prog.suggested != null ? prog.suggested : '');
+  return `<div class="set-row" data-key="${key}">
+    <span class="idx num">${i + 1}</span>
+    <input type="text" inputmode="decimal" class="wt" placeholder="${wVal}" value="${wVal}" aria-label="weight">
+    <span class="times">×</span>
+    <input type="text" inputmode="numeric" class="reps" placeholder="${repTarget}" value="${rVal}" aria-label="reps">
+    <button class="save-set" data-act="save-set" data-key="${key}" data-ex="${e.id}">Log</button>
+  </div>`;
 }
 
 function renderLogger() {
@@ -977,41 +1265,43 @@ function renderLogger() {
   const session = config.sessions[state.logger.sessionId];
   const workout = (rec.workout && rec.workout.sessionId === state.logger.sessionId) ? rec.workout : { sets: {}, minutes: undefined };
 
+  // What is actually performed today: the plan's list with the chin-up slot
+  // resolved to its phase and any accepted variation applied.
+  const exercises = L.sessionExercises(state.configDoc, state.records, state.logger.sessionId, t);
+  const chin = L.chinupState(state.configDoc, state.records, t);
+
   // Progression cues computed against history excluding today.
   const prior = { ...state.records };
   delete prior[t];
 
   let ex = '';
   let prevPair = null;
-  for (const e of session.exercises) {
+  let chinShown = false;
+  for (const e of exercises) {
+    if (e.phasedFrom === 'chinup' && !chinShown) { ex += chinHeader(chin); chinShown = true; }
     const prog = L.progression(state.configDoc, prior, e.id, e, t);
-    const scheme = exScheme(e);
+    const scheme = e.scheme || `${e.sets} × ${e.reps}`;
     const paired = e.pair != null;
     let rows = '';
     for (let i = 0; i < e.sets; i++) {
       const key = `${e.id}:${i}`;
       const s = workout.sets[key];
       const editing = state.editingSet === key;
-      if (s && !editing) {
-        rows += `<button class="set-row compact" data-act="edit-set" data-key="${key}">
-          <span class="idx num">${i + 1}</span>
-          <span class="val num">${s.weight} <span class="x">×</span> ${s.reps}</span>
-        </button>`;
-      } else {
-        // The weight is a real value, not a placeholder: on a fresh exercise it
-        // is the plan's seeded start load, after that the progression
-        // suggestion. An empty box asks for a number at the worst moment.
-        const wVal = s ? s.weight : (prog.suggested != null ? prog.suggested : '');
-        const rPh = s ? s.reps : e.reps;
-        rows += `<div class="set-row" data-key="${key}">
-          <span class="idx num">${i + 1}</span>
-          <input type="text" inputmode="decimal" class="wt" placeholder="${wVal}" value="${wVal}" aria-label="weight">
-          <span class="times">×</span>
-          <input type="text" inputmode="numeric" class="reps" placeholder="${rPh}" value="${s ? s.reps : ''}" aria-label="reps">
-          <button class="save-set" data-act="save-set" data-key="${key}" data-ex="${e.id}">Log</button>
-        </div>`;
-        if (!s && !editing) break; // one open row at a time per exercise
-      }
+      rows += setRowHtml(e, i, s, prog, editing);
+      if (!s && !editing) break; // one open row at a time per exercise
+    }
+
+    // Phase 2 bar work carries a note instead of a load: which band, how many
+    // negatives, and the periodic unassisted test that ends the phase.
+    let barWork = '';
+    if (e.entry === 'barWork') {
+      barWork = `<div class="bar-work">
+        <div class="field"><span class="fl label">Band or negatives</span>
+          <input id="lg-chin-note" type="text" value="${esc(workout.chinBandOrNegatives || '')}" placeholder="green band · or 4 negatives, 5 s down"></div>
+        <div class="field"><span class="fl label">Unassisted reps today</span>
+          <input id="lg-chin-un" type="text" inputmode="numeric" value="${workout.chinUnassisted != null ? workout.chinUnassisted : ''}" placeholder="0"></div>
+        <button class="save-set" data-act="save-chin">Save note</button>
+      </div>`;
     }
 
     // How the set felt, which the logged reps cannot express. Drives what the
@@ -1021,19 +1311,37 @@ function renderLogger() {
       ${[['hit', 'Hit'], ['grindy', 'Grindy'], ['miss', 'Missed']].map(([v, label]) =>
         `<button class="mark ${v}${mk === v ? ' sel' : ''}" data-act="mark-set" data-ex="${e.id}" data-mark="${v}">${label}</button>`).join('')}
     </div>`;
+
+    // A prompt is a change the app will not make on its own. A harder push-up
+    // variation is a decision; adding a rep is not.
+    let prompt = '';
+    if (prog.prompt && prog.prompt.kind === 'variation') {
+      prompt = `<button class="phase-advance" data-act="accept-variation" data-ex="${e.id}" data-to="${esc(prog.prompt.to)}">${esc(prog.prompt.label)}</button>`;
+    } else if (prog.prompt) {
+      prompt = `<div class="ex-cue done">${esc(prog.prompt.label)}</div>`;
+    }
+
     ex += `<div class="exercise${paired ? ' paired' : ''}">
-      <div class="ex-head"><span class="name">${esc(e.name)}</span><span class="scheme num">${scheme}</span></div>
+      <div class="ex-head"><span class="name">${esc(e.name)}</span><span class="scheme num">${esc(scheme)}</span></div>
       ${paired && e.pair !== prevPair ? `<div class="pair-tag">Alternate with next${e.rest ? ` · ${esc(e.rest)} rests` : ''}</div>` : ''}
       ${prog.cue ? `<div class="ex-cue${prog.tone === 'done' ? ' done' : ''}">${esc(prog.cue)}</div>` : ''}
+      ${e.note ? `<div class="ref-note">${esc(e.note)}</div>` : ''}
       ${rows}
+      ${barWork}
+      ${prompt}
       ${markRow}
     </div>`;
     prevPair = paired ? e.pair : null;
   }
 
+  const warm = config.warmup || {};
+  const warmText = [warm.all, warm[state.logger.sessionId]].filter(Boolean).join(' ');
+
   return `<div class="logger"><div class="logger-inner">
     <div class="logger-head"><h2>${esc(session.name)}</h2><button class="close" data-act="close-logger">Close</button></div>
+    ${warmText ? `<div class="warmup"><span class="label">Warm-up</span><div class="ref-note">${esc(warmText)}</div></div>` : ''}
     ${ex}
+    ${session.note ? `<div class="ref-note session-note">${esc(session.note)}</div>` : ''}
   </div>
   <div class="logger-foot"><div class="inner">
     <span class="label">Min</span>
@@ -1054,13 +1362,37 @@ function download(name, text, type = 'text/csv') {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 
-function doExport() {
+// Backup files. The clinician timeline ships with them: its whole value is
+// being complete and handable to someone else.
+function exportFiles() {
   const stamp = todayStr();
-  download(`days-${stamp}.csv`, L.daysToCsv(state.records));
-  download(`workouts-${stamp}.csv`, L.workoutsToCsv(state.records));
-  download(`measurements-${stamp}.csv`, L.measurementsToCsv(state.measurements));
-  download(`plan-${stamp}.json`, JSON.stringify(state.configDoc, null, 2), 'application/json');
-  state.meta.lastExport = stamp;
+  return [
+    { name: `days-${stamp}.csv`, text: L.daysToCsv(state.records), type: 'text/csv' },
+    { name: `workouts-${stamp}.csv`, text: L.workoutsToCsv(state.records), type: 'text/csv' },
+    { name: `measurements-${stamp}.csv`, text: L.measurementsToCsv(state.measurements), type: 'text/csv' },
+    { name: `clinician-${stamp}.csv`, text: L.clinicianToCsv(state.records), type: 'text/csv' },
+    { name: `plan-${stamp}.json`, text: JSON.stringify(state.configDoc, null, 2), type: 'application/json' },
+  ];
+}
+
+// Out through the iOS share sheet where it exists, so the backup lands in
+// Files or iCloud rather than in the app's own sandbox — which is exactly the
+// storage the backup is insurance against. A plain download is the fallback.
+async function doExport() {
+  const specs = exportFiles();
+  let shared = false;
+  try {
+    const files = specs.map((f) => new File([f.text], f.name, { type: f.type }));
+    if (navigator.canShare && navigator.canShare({ files })) {
+      await navigator.share({ files, title: 'Tracker backup' });
+      shared = true;
+    }
+  } catch (e) {
+    // A cancelled share is not a failure, but it is not a backup either.
+    if (e && e.name === 'AbortError') return;
+  }
+  if (!shared) for (const f of specs) download(f.name, f.text, f.type);
+  state.meta.lastExport = todayStr();
   save();
   render();
 }
@@ -1112,6 +1444,8 @@ function handleAction(act, el) {
         else { state.sheet = { kind: 'cardio', autofocus: true }; renderOverlay(); }
       } else if (id.startsWith('meal-')) {
         document.getElementById('sec-meals')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else if (id === 'rehab') {
+        document.getElementById('sec-rehab')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       } else if (id === 'checkin') {
         document.getElementById('sec-checkin')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       } else if (id === 'export') {
@@ -1207,6 +1541,73 @@ function handleAction(act, el) {
       mutate(() => { const rec = getRec(); rec.modifiers[id] = !rec.modifiers[id]; });
       break;
     }
+
+    // ---- Achilles rehab (§9)
+    case 'rehab-toggle': mutate(() => {
+      const rec = getRec();
+      rec.rehab = rec.rehab || {};
+      rec.rehab.heelRaisesDone = !rec.rehab.heelRaisesDone;
+      // The load that was actually used is the point of the log, so a card
+      // ticked without opening the sheet records the suggested one rather
+      // than leaving the session with no load at all.
+      if (rec.rehab.heelRaisesDone && rec.rehab.loadUsed == null) {
+        const load = L.rehabLoad(state.configDoc, state.records, t);
+        if (load) rec.rehab.loadUsed = load.suggested;
+      }
+    }); break;
+    case 'save-rehab': {
+      const v = parseFloat(document.getElementById('sh-rehab-load').value);
+      mutate(() => {
+        const rec = getRec();
+        rec.rehab = rec.rehab || {};
+        rec.rehab.loadUsed = isNaN(v) ? 0 : v;
+        rec.rehab.heelRaisesDone = true;
+        state.sheet = null;
+      });
+      break;
+    }
+    case 'achilles': mutate(() => {
+      const rec = getRec();
+      rec.checkin = rec.checkin || {};
+      rec.checkin.achilles = rec.checkin.achilles === el.dataset.val ? undefined : el.dataset.val;
+    }); break;
+    // Not a dismissal: the flag comes down only by recording that a clinician
+    // has actually looked at it.
+    case 'achilles-cleared': mutate(() => { state.meta.achillesClinicianCleared = todayStr(); }); break;
+
+    // ---- chin-up phases (§6.2): the app prompts, the user advances
+    case 'chin-advance': {
+      const to = Number(el.dataset.phase);
+      mutate(() => {
+        const w = ensureWorkout();
+        w.chinPhase = to;
+      });
+      break;
+    }
+    case 'save-chin': {
+      const note = document.getElementById('lg-chin-note').value.trim();
+      const un = parseInt(document.getElementById('lg-chin-un').value, 10);
+      mutate(() => {
+        const w = ensureWorkout();
+        if (note) w.chinBandOrNegatives = note; else delete w.chinBandOrNegatives;
+        if (!isNaN(un)) w.chinUnassisted = un; else delete w.chinUnassisted;
+      });
+      break;
+    }
+    case 'accept-variation': {
+      const exId = el.dataset.ex;
+      const to = el.dataset.to;
+      mutate(() => {
+        const w = ensureWorkout();
+        if (!w.variants) w.variants = {};
+        w.variants[exId] = to;
+      });
+      break;
+    }
+
+    case 'movement-breaks': mutate(() => {
+      state.meta.movementBreaks = state.meta.movementBreaks === false;
+    }); break;
 
     case 'chip': mutate(() => {
       const rec = getRec();
@@ -1323,7 +1724,9 @@ function saveSetFromRow(key, exId) {
   if (!row) return;
   const wtInput = row.querySelector('.wt');
   const repsInput = row.querySelector('.reps');
-  const wt = parseFloat(wtInput.value || wtInput.placeholder);
+  // No weight box means the exercise carries no load: bodyweight reps, or a
+  // hold measured in seconds. It logs as 0 rather than refusing to save.
+  const wt = wtInput ? parseFloat(wtInput.value || wtInput.placeholder) : 0;
   const reps = parseInt(repsInput.value || repsInput.placeholder, 10);
   if (isNaN(wt) || isNaN(reps)) return;
   mutate(() => {

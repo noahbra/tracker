@@ -562,3 +562,64 @@ h1, h2, .display {
   .sheet, .logger { animation-duration: 0ms; }
   .tile .bar .fill { transition: none; }
 }
+
+/* ---------- Achilles rehab card (§9.1) ---------- */
+
+.rehab-move .line { display: flex; justify-content: space-between; padding: 4px 0; font-size: 14px; }
+.rehab-move .line .num { color: var(--ink2); }
+.rehab-row { display: flex; align-items: center; gap: 12px; padding: 12px 0 4px; margin-top: 10px; border-top: 1px solid var(--rule); }
+.rehab-main { flex: 1; text-align: left; min-height: 44px; display: flex; flex-direction: column; justify-content: center; }
+.rehab-name { font-weight: 600; font-size: 15px; }
+.rehab-check {
+  width: 26px; height: 26px; flex: 0 0 26px;
+  border: 1.5px solid var(--rule);
+  background: none; position: relative;
+}
+.rehab-check.done { background: var(--done); border-color: var(--done); }
+.rehab-check.done::after {
+  content: ''; position: absolute; left: 8px; top: 4px;
+  width: 6px; height: 12px;
+  border: solid var(--panel); border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+/* The clinician flag is a gate, so its only control records that a clinician
+   looked. There is deliberately no dismiss. */
+.notice-action {
+  display: block; margin-top: 10px;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--alert); background: none;
+  border: 1px solid var(--alert); padding: 8px 10px;
+}
+.pull-order { margin: 8px 0 0; padding-left: 18px; font-size: 13.5px; color: var(--ink2); }
+.pull-order li { margin-top: 6px; }
+.pull-text { font-size: 13.5px; color: var(--ink2); margin-top: 6px; }
+
+/* ---------- chin-up phase card (§6.2) ---------- */
+
+.phase-head { padding: 14px 0 4px; border-top: 1px solid var(--rule); }
+.phase-bar { margin-top: 8px; }
+.phase-bar .bar { height: 4px; background: var(--rule); position: relative; overflow: hidden; }
+.phase-bar .bar .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--done); transition: width 400ms ease; }
+.phase-bar .of { font-family: var(--mono); font-size: 12px; color: var(--ink3); margin-top: 5px; }
+/* An advance is offered, never taken: the button is the whole consent step. */
+.phase-advance {
+  display: block; width: 100%; text-align: left;
+  margin-top: 10px; padding: 10px 12px;
+  border: 1px dashed var(--brass); color: var(--brass);
+  background: none; font-family: var(--sans); font-weight: 600; font-size: 14px;
+}
+.bar-work { margin-top: 8px; }
+.bar-work .field { margin-top: 8px; }
+.bar-work .field .fl { display: block; margin-bottom: 4px; }
+.bar-work input { width: 100%; font-family: var(--mono); font-size: 16px; padding: 8px 10px; }
+.set-row input.reps.wide { width: 84px; }
+.warmup { padding-bottom: 6px; }
+.session-note { margin-top: 14px; }
+
+/* ---------- desk habit line ---------- */
+
+.habit-line { margin-top: 14px; font-size: 13.5px; color: var(--ink2); }
+.habit-line .label { display: inline; margin-right: 6px; }
+.habit-line .ref-note { display: inline; margin-left: 4px; }
+.tile .of.good { color: var(--done); }
+@media (prefers-reduced-motion: reduce) { .phase-bar .bar .fill { transition: none; } }

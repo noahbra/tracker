@@ -43,7 +43,7 @@ const check = (name, cond, detail = '') => ok.push({ name, pass: !!cond, detail 
 // only some of the time — before day 1 of a new block, none of it can run.
 // Default: Wednesday of week 2, a day the calendar offers no lift, which is
 // what the orphaned-workout check is about.
-const FAKE_NOW = process.env.TRACKER_FAKE_NOW || '2026-08-19T09:30:00';
+const FAKE_NOW = process.env.TRACKER_FAKE_NOW || '2026-09-02T09:30:00';
 await send('Page.addScriptToEvaluateOnNewDocument', {
   source: `(() => {
     const Real = Date;
@@ -59,7 +59,7 @@ await send('Page.navigate', { url: APP });
 await new Promise((r) => setTimeout(r, 2500));
 
 const pinned = await evalJs(`new Date().toString()`);
-check('clock pinned inside the program', pinned.startsWith('Wed Aug 19 2026'), pinned);
+check('clock pinned inside the program', pinned.startsWith('Wed Sep 02 2026'), pinned);
 const headerDay = await evalJs(`document.querySelector('.header .sub').textContent`);
 check('header counts program days', /Day 10 · Week 2/.test(headerDay), headerDay);
 
@@ -110,13 +110,13 @@ await evalJs(`
   const t = (()=>{const d=new Date();const p=n=>String(n).padStart(2,'0');return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());})();
   localStorage.clear();
   localStorage.setItem('tracker.days', JSON.stringify({[t]:{
-    date:t, schemaVersion:1, planVersion:5, meals:{}, modifiers:{},
-    workout:{ sessionId:'liftA', sets:{'deadlift:0':{weight:185,reps:5}}, minutes:50, completedAt: t+'T12:00:00' }
+    date:t, schemaVersion:2, planVersion:6, meals:{}, modifiers:{},
+    workout:{ sessionId:'liftA', sets:{'bench:0':{weight:115,reps:5}}, minutes:50, completedAt: t+'T12:00:00' }
   }}));
   location.reload();
 `);
 await new Promise((r) => setTimeout(r, 2500));
-const offersLift = await evalJs(`(document.getElementById('sec-training')||{}).textContent?.includes('Lift')`);
+const offersLift = await evalJs(`(document.getElementById('sec-training')||{}).textContent?.includes('Strength')`);
 const wayIn = await evalJs(`!!document.querySelector('[data-act="open-logger"]')`);
 check('logged workout is reachable on a non-lift day', wayIn === true);
 check('and the card names the session', offersLift === true);
@@ -137,7 +137,7 @@ await new Promise((r) => setTimeout(r, 2500));
 let back = -1;
 for (let k = 0; k < 7; k++) {
   const txt = await evalJs(`(document.getElementById('sec-training')||{}).textContent || ''`);
-  if (txt.includes('Start Lift')) { back = k; break; }
+  if (txt.includes('Start Strength')) { back = k; break; }
   await evalJs(`document.querySelector('[data-act="day-prev"]').click()`);
   await new Promise((r) => setTimeout(r, 400));
 }
@@ -147,11 +147,11 @@ if (back >= 0) {
     const iso = (d) => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
     const day = new Date(); day.setDate(day.getDate() - ${back});
     const prior = new Date(day); prior.setDate(prior.getDate() - 7);
-    const blank = (d) => ({ date: iso(d), schemaVersion:1, planVersion:5, meals:{}, modifiers:{} });
+    const blank = (d) => ({ date: iso(d), schemaVersion:2, planVersion:6, meals:{}, modifiers:{} });
     const days = {};
-    // Lift A is the last one completed, so the day should offer Lift B...
-    days[iso(prior)] = { ...blank(prior), workout:{ sessionId:'liftA', sets:{'deadlift:0':{weight:185,reps:5}}, minutes:50, completedAt: iso(prior)+'T12:00:00' } };
-    // ...despite the abandoned Lift A shell sitting on it.
+    // Strength A is the last one completed, so the day should offer B...
+    days[iso(prior)] = { ...blank(prior), workout:{ sessionId:'liftA', sets:{'bench:0':{weight:115,reps:5}}, minutes:50, completedAt: iso(prior)+'T12:00:00' } };
+    // ...despite the abandoned Strength A shell sitting on it.
     days[iso(day)] = { ...blank(day), workout:{ sessionId:'liftA', sets:{} } };
     localStorage.setItem('tracker.days', JSON.stringify(days));
     location.reload();
@@ -162,11 +162,11 @@ if (back >= 0) {
     await new Promise((r) => setTimeout(r, 400));
   }
   const offerTxt = await evalJs(`(document.getElementById('sec-training')||{}).textContent || ''`);
-  check('an empty shell does not change what the card offers', offerTxt.includes('Start Lift B'), offerTxt.trim().slice(0, 60));
+  check('an empty shell does not change what the card offers', offerTxt.includes('Start Strength B'), offerTxt.trim().slice(0, 60));
   await evalJs(`(()=>{const b=document.querySelector('[data-act="open-logger"]'); if(b) b.click(); return !!b;})()`);
   await new Promise((r) => setTimeout(r, 600));
   const opened = await evalJs(`(document.querySelector('.logger-head h2')||{}).textContent || ''`);
-  check('the logger opens the lift the card named', opened === 'Lift B', `card said Lift B, logger opened ${opened || 'nothing'}`);
+  check('the logger opens the lift the card named', opened === 'Strength B', `card said Strength B, logger opened ${opened || 'nothing'}`);
 }
 
 for (const r of ok) console.log(`${r.pass ? 'PASS' : 'FAIL'}: ${r.name}${r.detail ? ' — ' + r.detail : ''}`);

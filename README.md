@@ -2,7 +2,9 @@
 
 Single-plan training and nutrition tracker. One user, one pre-written plan. The app's job is to make executing the plan easy and to say when the numbers show it needs adjusting.
 
-Built from `tracker-app-brief-v1.1`. No framework, no build step: vanilla JS, static files, GitHub Pages.
+Built from `tracker-app-brief-v1.1`, currently running the v2.0 build spec (plan **v6**, effective Monday 8/24/2026). No framework, no build step: vanilla JS, static files, GitHub Pages.
+
+The plan it executes now: two strength days off the barbell squat and deadlift, three cardio exposures with the hike on Saturday, a phased chin-up progression, and a daily Achilles rehab protocol with a clinician gate.
 
 ## Use it on your phone
 
@@ -18,7 +20,9 @@ A new build installs in the background and the app reloads itself once to pick i
 
 ## Back up your data
 
-Settings → **Export backup** downloads `days.csv`, `workouts.csv`, `measurements.csv`, and the active plan config. Import the same files on a new phone; import is idempotent, so re-importing changes nothing.
+Settings → **Export backup** hands `days.csv`, `workouts.csv`, `measurements.csv`, `clinician.csv`, and the active plan config to the **iOS share sheet**, so the files land in Files or iCloud rather than in the app's own sandbox — which is the storage the backup is insurance against. Where no share sheet exists (desktop browsers), it falls back to plain downloads. Import the same files on a new phone; import is idempotent, so re-importing changes nothing.
+
+`clinician.csv` is the timeline to hand someone: every day the Achilles was rehabbed or reported on, the load used, and every muscle-symptom day.
 
 There is no cloud copy, and iOS can evict web storage for apps unused for extended periods (home-screen apps are treated more gently, and the app requests persistent storage, but neither is a guarantee — and PWA storage is not in iCloud device backups). So the app watches for you: when the last export is more than four weeks old, an **Export a backup** prompt appears on the This week screen and stays until you export. Save the files to iCloud Drive when Safari asks where to put them.
 
@@ -41,7 +45,7 @@ Day 1 is the top-level **`programStart`** date, outside `versions`. Move that on
 
 Sessions logged before `programStart` stay on the record and still export, but they no longer set today's load: a restart resumes from each exercise's `startWeight`, not from where the last block left off.
 
-`programStart` may be in the future. Until it arrives the header reads *Starts Monday, Aug 10* rather than counting down from day zero, while the current `effectiveFrom` version already governs what you eat — so a new menu can take effect the evening before the block it belongs to.
+`programStart` may be in the future. Until it arrives the header reads *Starts Monday, Aug 24* rather than counting down from day zero, while the current `effectiveFrom` version already governs what you eat — so a new menu can take effect the evening before the block it belongs to.
 
 ### Meals that change by weekday
 
@@ -58,6 +62,32 @@ Protein has two numbers, and they are not the same: `targets.proteinWeeklyAvg` i
 
 Beyond `increment`, an exercise may set `taperAbove` + `taperIncrement` (climb in big jumps until the bar gets heavy, then smaller ones) and its own `roundToNearest`, which is what makes a 2.5 lb press increment survive instead of rounding back into a 5. `goal`, `goalWeeks`, `startLabel`, `goalLabel`, `rest`, and `scheme` are description only; they render on the Reference tab and never affect a suggestion.
 
+Every exercise also names a **`progressionKey`**, and `progressionRules` in the same version says what that key does. There is no scripting language here and there is not going to be one — five shapes cover the plan:
+
+| `type` | What it does | Used by |
+|---|---|---|
+| `load` | Add the increment on a clean session. `cleanSessionsBeforeAdvance: 2` holds the load until it has been carried cleanly twice. | bench, press, rows, hip thrust, leg curl |
+| `repsThenLoad` | Reps first (`repFrom` → `repTo`), then the increment and back to `repFrom`. | split squat, reverse lunge |
+| `repsThenVariation` | Reps to a ceiling, then offer the next entry in `variations`. Never more reps past the ceiling. | push-ups |
+| `repLadder` | A fixed bodyweight `ladder`, then `thenLoad`. Regresses a rung on a miss. | back extension |
+| `subjective` | Hold the load and state the gate; a session marked **Hit** is you saying the gate was cleared. | carries, side plank, Pallof press |
+
+An exercise with `"entry": "reps"` or `"entry": "seconds"` carries no load at all, and the logger shows one box instead of two. A bodyweight set reads **BW**, not 0.
+
+### The chin-up, which is a phase and not a load
+
+`chinup.phases` holds three: build the pulldown to 160 lb, cross the gap with negatives or a band, then accumulate reps to 3 × 8. The app works out which phase you are in, shows **only that one**, and tracks how close its trigger is. Meeting a trigger **prompts**; the phase moves when you accept it, and accepting is what writes `chinPhase` onto that day's workout. Each phase names its own real exercises (`pulldown`, `chinbar`, `chinup`), so history survives the change.
+
+### The Achilles protocol
+
+`rehab.achilles` is its own daily card on Today, deliberately outside the strength days: it has to happen whether or not there was a session. It logs the load, not the reps, because that is how it progresses. The **morning reading** (better / same / worse) lives in the evening check-in, because the next morning is what judges the exercise. A `worse` reading pulls back in the order the plan sets — hike, then step-ups, then cardio off the feet — and the rehab load comes down last, since it is the thing rebuilding the tendon.
+
+The clinician flag on that card is a gate, not a notice: bilateral and spontaneous is the presentation that wants a look first. It comes down only by recording that a clinician has actually looked, and there is no dismiss.
+
+### Steps
+
+`9,000` is a movement floor for the day, not a number on top of the walking sessions, and `63,000` is the week. The step gauge clears on **either** the daily target or the week being on pace, so a 14k hike banks against an 8.2k recovery day. Nothing ever converts cardio minutes into steps: a bike session satisfies the cardio prescription and leaves the step count exactly where it was.
+
 ## Structure
 
 ```
@@ -68,13 +98,14 @@ js/app.js               rendering, storage, sheets
 config/plan.json        the plan (versioned; append, never overwrite)
 sw.js                   offline cache (bump VERSION on breaking changes)
 tests/logic.test.mjs    run: node tests/logic.test.mjs
+tests/*.browser.mjs     run against a real Chrome; see each file's header
 ```
 
 ## What's next
 
 The bar under the header walks the day in one fixed order:
 
-**weight → sleep → workout → coffee → midday meal → afternoon snack → walk → dinner → dessert → evening check-in.**
+**weight → sleep → workout → coffee → midday meal → afternoon snack → walk → dinner → dessert → Achilles heel raises → evening check-in.**
 
 Each step carries the hour it comes due (the meals use their own hours from `plan.json`; the walk comes due at 4pm), so the bar waits for a block rather than asking about dinner at breakfast. It never reorders the list around the clock: the first unsatisfied step whose hour has arrived is what it shows, and if nothing is due yet it names the earliest thing still unmarked. A due waist measurement slots in after the day's own steps, and an overdue backup only surfaces once the day is fully logged.
 
@@ -118,6 +149,12 @@ Covers the brief's acceptance criteria that are computable: trend slope vs indep
 
 The engine cases run against the plan shape they were written for; the live `config/plan.json` gets its own section, which checks the shipped plan rather than the code: that eating the plan produces the day totals the plan document itself prints, that the week averages to the numbers it claims, that the weekend shake is offered Friday to Sunday only, that every exercise carries a start load and a goal, and that walking each lift week by week from its start load actually arrives at its goal in roughly the stated number of weeks. That last one is a check on the plan's arithmetic, not the app's: an increment that can never reach its target fails here.
 
+```
+node tests/rehab.browser.mjs
+```
+
+That second browser test covers the medical gates, which are the one part of this app where a rendering bug is worse than a crash: that the clinician flag shows with exactly one control (record it cleared, never dismiss it), that the dark-urine notice has no control at all, that ticking the rehab card writes the load, that a `worse` morning names the hike first and takes a loaded rehab down a step, and that Export actually produces all five files.
+
 There is also a browser-level test for the things no pure-logic test can show: that a day logged while viewing a past date is written to that date rather than today, that a logged workout stays reachable on a day the calendar does not offer a lift, and that the training button opens the lift it names. It needs Chrome and a local server; see the header of the file for the exact commands. It pins the page clock (`TRACKER_FAKE_NOW`) so it does not depend on today being a convenient day of the program, and bypasses the service worker so it always grades the code on disk rather than a cached build.
 
 ```
@@ -127,9 +164,10 @@ node tests/backfill.browser.mjs
 ## Not in this build (web platform limits)
 
 - HealthKit (steps/sleep auto-fill): a web app can't read Apple Health. Steps and sleep are two-tap manual entries; everything in the brief's §9.1 fallback path works.
-- Scheduled notifications: iOS home-screen web apps support push only with a server, which would break local-only data. The NEXT bar covers sequencing while the app is open. To replicate the brief's §9.2 schedule, create three repeating iOS Reminders (they cost nothing and match the spec's copy):
+- Scheduled notifications: iOS home-screen web apps support push only with a server, which would break local-only data. The NEXT bar covers sequencing while the app is open, and the movement-break habit is one silenceable line on Today (Settings → Movement breaks) rather than a notification it cannot actually deliver. **Do not "fix" this by claiming background scheduling works.** To get an actual buzz, create repeating iOS Reminders:
   - 6:30am daily — "Good morning. Weight and sleep."
   - Your usual session time — "Training today."
-  - 8:30pm daily — "Check-in: one tap."
+  - Every 45 min while at the desk — "Stand and walk."
+  - 8:30pm daily — "Check-in: one tap, plus the Achilles."
 
-Everything else in the brief through Phase 3 is implemented.
+Everything else in the build spec through Phase 3 is implemented.
