@@ -243,7 +243,8 @@ function benchSets(weight, reps3) {
     checkin: { symptom: 'None' } }) };
   const gauge = L.dayGauge(configDoc, records, d);
   assert(gauge.every((g) => g.done), 'full rest day -> all 6 segments done');
-  const measurements = [{ id: 'w1', takenAt: `${d}T07:00:00`, kind: 'waist', value: 41, schemaVersion: 1 }];
+  const measurements = [{ id: 'w1', takenAt: `${d}T07:00:00`, kind: 'waist', value: 41, schemaVersion: 1 },
+    { id: 'b1', takenAt: `${d}T07:05:00`, kind: 'bloodPressure', value: 126, value2: 80, schemaVersion: 1 }];
   const next = L.nextAction(configDoc, records, measurements, d, 21);
   assertEq(next.id, 'done', "everything satisfied -> day's logged");
   // Overdue backup surfaces only once the day itself is fully logged.
@@ -792,8 +793,9 @@ const WEEK = ['2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13', '2026-08-1
   const fed = { [SUN]: { date: SUN, planVersion: 5, weight: 218, sleepMinutes: 450,
     modifiers: {}, steps: 9000,
     meals: { breakfast: 'eaten', lunch: 'eaten', snack: 'eaten' } } };
-  assertEq(L.nextAction(v5Doc, fed, [], SUN, 17).id, 'waist', 'dinner is not due at 5pm');
-  assertEq(L.nextAction(v5Doc, fed, [], SUN, 18).id, 'meal-dinner', '6pm -> dinner');
+  const bpTaken = [{ id: 'b2', takenAt: `${SUN}T08:00:00`, kind: 'bloodPressure', value: 124, schemaVersion: 1 }];
+  assertEq(L.nextAction(v5Doc, fed, bpTaken, SUN, 17).id, 'waist', 'dinner is not due at 5pm');
+  assertEq(L.nextAction(v5Doc, fed, bpTaken, SUN, 18).id, 'meal-dinner', '6pm -> dinner');
 }
 
 // The day runs in one order and the NEXT bar walks it in that order.
@@ -846,17 +848,18 @@ const WEEK = ['2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13', '2026-08-1
   assert(!friIds.some((id) => id.startsWith('mod-')), 'no modifier is on the chain');
 }
 
-// ---------- the live plan, v6: no spinal loading, chin phases, Achilles ----------
-// The plan restarted Monday Aug 24 under planVersion 6. Every expected number
-// below is copied from the build spec or from config/plan.json, never derived
-// from the code being tested.
+// ---------- the live plan, v7: no spinal loading, chin phases, Achilles ----------
+// The plan restarted Monday Aug 24. Version 7 is what ships now: version 6 with
+// the hip thrust swapped for the cable pull-through. Every expected number below
+// is copied from the build spec or from config/plan.json, never derived from the
+// code being tested.
 
-const V6 = liveDoc.versions.find((v) => v.planVersion === 6);
+const LIVE = liveDoc.versions.find((v) => v.planVersion === 7);
 const M1 = '2026-08-24';                       // day 1, Monday, week 1
 const W5 = '2026-09-21';                       // Monday of week 5, full schedule
 
 function r6(date, extra = {}) {
-  return { date, schemaVersion: 2, planVersion: 6, meals: {}, modifiers: {}, ...extra };
+  return { date, schemaVersion: 2, planVersion: 7, meals: {}, modifiers: {}, ...extra };
 }
 // A completed session at one load across every set, with an explicit mark.
 function did(exId, weight, reps, date, mark = 'hit', sets = 3, sessionId = 'liftA') {
@@ -864,52 +867,56 @@ function did(exId, weight, reps, date, mark = 'hit', sets = 3, sessionId = 'lift
   for (let i = 0; i < sets; i++) s[`${exId}:${i}`] = { weight, reps };
   return { [date]: r6(date, { workout: { sessionId, completedAt: `${date}T07:30:00`, marks: { [exId]: mark }, sets: s } }) };
 }
-const exOf = (sid, id) => V6.sessions[sid].exercises.find((e) => e.id === id);
+const exOf = (sid, id) => LIVE.sessions[sid].exercises.find((e) => e.id === id);
 
 {
-  assert(V6, 'plan carries a version 6');
-  assertEq(V6.supersedes, 5, 'v6 says which version it supersedes');
-  assert(V6.migrationNote && V6.migrationNote.length > 40, 'v6 records why it could not be numbered 5');
+  assert(LIVE, 'plan carries a version 7');
+  assertEq(LIVE.supersedes, 6, 'v7 says which version it supersedes');
+  assert(LIVE.migrationNote && LIVE.migrationNote.length > 40, 'v7 records what it changed and why');
+  // Same effectiveFrom as the version it replaces: the tie breaks on the number.
+  assertEq(LIVE.effectiveFrom, liveDoc.versions.find((v) => v.planVersion === 6).effectiveFrom,
+    'v7 takes effect the same day v6 did');
   assertEq(L.programStart(liveDoc), M1, 'the program restarts Monday Aug 24');
   assertEq(L.weekday(M1), 1, 'Aug 24 is a Monday');
   assertEq(L.programDay(liveDoc, M1), 1, 'Aug 24 is day 1');
   assertEq(L.programWeek(liveDoc, M1), 1, 'Aug 24 is week 1');
-  assertEq(L.configFor(liveDoc, M1).planVersion, 6, 'day 1 resolves to v6');
+  assertEq(L.configFor(liveDoc, M1).planVersion, 7, 'day 1 resolves to v7, not the version it supersedes');
   // History is never rewritten: the older versions keep the dates they really
   // ran on, and a day recorded under one of them still values against it.
   assert(liveDoc.versions.some((v) => v.effectiveFrom < M1), 'older versions keep their real effectiveFrom');
   assertEq(L.configByVersion(liveDoc, 5).planVersion, 5, 'v5 is still resolvable for days recorded under it');
+  assertEq(L.configByVersion(liveDoc, 6).planVersion, 6, 'so is v6, which the hip thrust was logged under');
   const oldDay = r6('2026-08-11', { planVersion: 5, meals: { lunch: 'eaten' } });
   assertEq(L.dayNutrition(liveDoc, oldDay).cal, 686, 'a v5 day still totals against v5');
 }
 
 // ---------- the spinal load is gone from the plan, not merely deprioritized
 {
-  const ids = Object.values(V6.sessions).flatMap((s) => s.exercises).map((e) => e.id);
+  const ids = Object.values(LIVE.sessions).flatMap((s) => s.exercises).map((e) => e.id);
   for (const gone of ['squat', 'deadlift', 'trapbar', 'rdl']) {
     assert(!ids.includes(gone), `${gone} is out of the plan`);
   }
-  assertEq(V6.sessions.liftA.exercises.map((e) => e.id),
-    ['bench', 'hipthrust', 'bsquat', 'csrow', 'suitcase', 'pallof'], 'Strength A is the spec list, in order');
-  assertEq(V6.sessions.liftB.exercises.map((e) => e.id),
+  assertEq(LIVE.sessions.liftA.exercises.map((e) => e.id),
+    ['bench', 'pullthrough', 'bsquat', 'csrow', 'suitcase', 'pallof'], 'Strength A is the spec list, in order');
+  assertEq(LIVE.sessions.liftB.exercises.map((e) => e.id),
     ['ohp', 'chinup', 'lunge', 'legcurl', 'pushup', 'backext', 'sideplank', 'farmer'], 'Strength B is the spec list, in order');
   // The row exists to avoid the spinal load, so the constraint travels with it.
   assert(/chest stays supported/i.test(exOf('liftA', 'csrow').note), 'the row carries its chest-support constraint');
   assert(/lumbar/i.test(exOf('liftB', 'backext').note), 'the back extension says what it loads');
   // No supersets: nothing is paired any more.
-  assert(!Object.values(V6.sessions).flatMap((s) => s.exercises).some((e) => e.pair), 'the plan has no supersets left');
-  for (const [sid, s] of Object.entries(V6.sessions)) {
+  assert(!Object.values(LIVE.sessions).flatMap((s) => s.exercises).some((e) => e.pair), 'the plan has no supersets left');
+  for (const [sid, s] of Object.entries(LIVE.sessions)) {
     for (const e of s.exercises) {
       if (e.phased) continue;
       assert(e.rest, `${sid}/${e.id} has a rest period`);
       assert(e.progressionKey, `${sid}/${e.id} names its progression rule`);
-      assert(V6.progressionRules[e.progressionKey], `${sid}/${e.id} points at a rule that exists`);
+      assert(LIVE.progressionRules[e.progressionKey], `${sid}/${e.id} points at a rule that exists`);
       if ((e.entry || 'weightReps') === 'weightReps') assert(e.startWeight != null, `${sid}/${e.id} is seeded`);
     }
   }
   // Goals moved off the barbell: nothing in the plan runs at a barbell number.
-  assert(!Object.values(V6.sessions).flatMap((s) => s.exercises).some((e) => e.goal != null), 'no exercise carries a barbell goal');
-  assert((V6.goals || []).length >= 2, 'the plan states what it is actually for');
+  assert(!Object.values(LIVE.sessions).flatMap((s) => s.exercises).some((e) => e.goal != null), 'no exercise carries a barbell goal');
+  assert((LIVE.goals || []).length >= 2, 'the plan states what it is actually for');
 }
 
 // ---------- the week: intervals Tuesday, Zone 2 Friday, hike Saturday
@@ -962,21 +969,54 @@ const exOf = (sid, id) => V6.sessions[sid].exercises.find((e) => e.id === id);
   assertEq(stats.avgCalories, 2222, 'the week still averages 2,222 cal');
   assertEq(stats.avgProtein, 165, 'the week still averages 165 g protein');
   assertEq(L.dayPlan(liveDoc, M1).proteinWeeklyAvg, 180, 'protein is judged weekly at 180 g');
-  assertEq(V6.targets.proteinAcceptableFloor, 160, 'and carries a 160 g floor');
+  assertEq(LIVE.targets.proteinAcceptableFloor, 160, 'and carries a 160 g floor');
 
   // The day-type adjustments sit on top of the rotation and are ticked, not
   // applied: on a restaurant night there is no plan starch to halve.
   assert(L.dayPlan(liveDoc, M1).mealModifiers.includes('preworkoutCarb'), 'a strength day offers the pre-training carb');
   assert(L.dayPlan(liveDoc, L.addDays(M1, 2)).mealModifiers.includes('halfDinnerStarch'), 'a rest day offers the half starch');
-  assert(V6.mealModifiers.find((m) => m.id === 'halfDinnerStarch').optional, 'the half starch is a tick, not an automatic subtraction');
+  assert(LIVE.mealModifiers.find((m) => m.id === 'halfDinnerStarch').optional, 'the half starch is a tick, not an automatic subtraction');
   const restDay = r6(L.addDays(M1, 2), { meals: { dinner: 'eaten' }, modifiers: { halfDinnerStarch: true } });
   assertEq(L.dayNutrition(liveDoc, restDay).cal, 900 - 80, 'ticking the half starch takes 80 cal off the day');
 
   // The cottage-cheese ceiling is a hard limit, and the plan says so where a
   // future revision would have to read it.
-  assert(V6.dietNotes.some((n) => /cottage cheese once a day/i.test(n)), 'the cottage-cheese limit is written down');
-  assert(V6.dietNotes.some((n) => /never with more cottage cheese/i.test(n)), 'the protein gap is not closed with cottage cheese');
-  assert(!JSON.stringify(V6.meals).toLowerCase().includes('honey'), 'no honey anywhere in the plan');
+  assert(LIVE.dietNotes.some((n) => /cottage cheese once a day/i.test(n)), 'the cottage-cheese limit is written down');
+  assert(LIVE.dietNotes.some((n) => /never with more cottage cheese/i.test(n)), 'the protein gap is not closed with cottage cheese');
+  assert(!JSON.stringify(LIVE.meals).toLowerCase().includes('honey'), 'no honey anywhere in the plan');
+}
+
+// ---------- the Sunday reading comes before the coffee
+{
+  const SUN = '2026-08-30';                      // Sunday of week 1, a rest day
+  assertEq(L.weekday(SUN), 0, 'Aug 30 is a Sunday');
+  const MON = '2026-08-31';                      // the Monday after it
+
+  const ids = L.nextChain(liveDoc, { [SUN]: r6(SUN) }, SUN, [], {}).map((x) => x.id);
+  assert(ids.includes('bp'), 'the Sunday reading is a step on the chain');
+  assert(ids.indexOf('bp') < ids.indexOf('meal-breakfast'), 'and it comes before the coffee');
+  const bpStep = L.nextChain(liveDoc, { [SUN]: r6(SUN) }, SUN, [], {}).find((x) => x.id === 'bp');
+  const coffee = L.nextChain(liveDoc, { [SUN]: r6(SUN) }, SUN, [], {}).find((x) => x.id === 'meal-breakfast');
+  assert(bpStep.hour < coffee.hour, 'it comes due on the clock before the coffee, not merely ahead of it in the list');
+
+  // Only on Sunday: it is a weekly reading, not a daily one.
+  assert(!L.nextChain(liveDoc, { [MON]: r6(MON) }, MON, [], {}).some((x) => x.id === 'bp'), 'no reading is asked for on a Monday');
+
+  // Morning, weight and sleep in: the reading outranks the coffee even after
+  // the coffee is due, which is the whole point of putting it first.
+  const morning = r6(SUN, { weight: 218, sleepMinutes: 450 });
+  assertEq(L.nextAction(liveDoc, { [SUN]: morning }, [], SUN, 11).id, 'bp', 'at 11am the unread pressure still outranks the coffee');
+
+  // Two ways to resolve it, and both let the day move on. A skippable prompt
+  // that cannot be skipped would hold the bar until midnight.
+  const taken = [{ id: 'b3', takenAt: `${SUN}T08:00:00`, kind: 'bloodPressure', value: 124, value2: 78, schemaVersion: 1 }];
+  assertEq(L.nextAction(liveDoc, { [SUN]: morning }, taken, SUN, 11).id, 'meal-breakfast', 'a reading taken this week hands off to the coffee');
+  const waved = { measurementsDismissed: L.weekStart(SUN) };
+  assertEq(L.nextAction(liveDoc, { [SUN]: morning }, [], SUN, 11, false, waved).id, 'meal-breakfast', 'so does waving it off for the week');
+  // Last week's reading is not this week's.
+  const stale = [{ id: 'b4', takenAt: `${L.addDays(SUN, -7)}T08:00:00`, kind: 'bloodPressure', value: 124, schemaVersion: 1 }];
+  assert(!L.bpResolved(stale, {}, SUN), "last Sunday's reading does not satisfy this Sunday");
+  assert(!L.bpResolved([], { measurementsDismissed: L.weekStart(L.addDays(SUN, -7)) }, SUN), 'nor does last week\'s dismissal');
 }
 
 // ---------- progression rules, one per shape
@@ -993,12 +1033,30 @@ const exOf = (sid, id) => V6.sessions[sid].exercises.find((e) => e.id === id);
   assert(!/fail|missed|behind/i.test(held.cue), 'holding a load is never worded as failure');
 
   // hingeGlute: two clean sessions before it moves.
-  const hip = exOf('liftA', 'hipthrust');
-  const one = L.progression(liveDoc, did('hipthrust', 95, 8, M1), 'hipthrust', hip, T2);
-  assertEq(one.suggested, 95, 'one clean hip thrust holds the load');
+  const curl = exOf('liftB', 'legcurl');
+  const one = L.progression(liveDoc, did('legcurl', 70, 10, M1, 'hit', 3, 'liftB'), 'legcurl', curl, T2);
+  assertEq(one.suggested, 70, 'one clean leg curl holds the load');
   assert(/one more/i.test(one.cue), 'and says what it is waiting for');
-  const two = { ...did('hipthrust', 95, 8, M1), ...did('hipthrust', 95, 8, T2) };
-  assertEq(L.progression(liveDoc, two, 'hipthrust', hip, '2026-09-07').suggested, 100, 'two clean hip thrusts add 5');
+  const two = { ...did('legcurl', 70, 10, M1, 'hit', 3, 'liftB'), ...did('legcurl', 70, 10, T2, 'hit', 3, 'liftB') };
+  assertEq(L.progression(liveDoc, two, 'legcurl', curl, '2026-09-07').suggested, 75, 'two clean leg curls add 5');
+
+  // cableHinge: the pull-through that replaced the hip thrust. Reps first,
+  // 10 -> 11 -> 12, then one pin on the stack and back to 10.
+  const pt = exOf('liftA', 'pullthrough');
+  assertEq([pt.sets, pt.reps, pt.increment], [3, 10, 10], 'the pull-through is 3 x 10 and moves a 10 lb pin');
+  assertEq(L.progression(liveDoc, {}, 'pullthrough', pt, M1).suggested, 50, 'it prefills the low end of its start range');
+  const t11 = L.progression(liveDoc, did('pullthrough', 50, 10, M1), 'pullthrough', pt, T2);
+  assertEq([t11.suggested, t11.reps], [50, 11], 'a clean 3 x 10 adds a rep before it adds load');
+  const t12 = L.progression(liveDoc, did('pullthrough', 50, 12, M1), 'pullthrough', pt, T2);
+  assertEq([t12.suggested, t12.reps], [60, 10], 'at 12 reps it goes up a pin and resets to 10');
+  // The technique note carries the one thing people get wrong.
+  assert(/hinge is at the hips, not the lower back/i.test(pt.note), 'the pull-through says where the hinge is');
+  assert(/hamstrings/i.test(pt.note), 'and where the stretch belongs');
+  assert(/glute drive machine/i.test(pt.note), 'and names the heavier alternative');
+  // The lift it replaced is gone from the live plan, and its spine and Achilles
+  // arguments are the reason: neither may quietly come back.
+  assert(!Object.values(LIVE.sessions).flatMap((s) => s.exercises).some((e) => e.id === 'hipthrust'),
+    'the hip thrust is out of the live plan');
 
   // dbLeg: reps first, 8 -> 9 -> 10, then load and back to 8.
   const bsq = exOf('liftA', 'bsquat');
@@ -1102,7 +1160,7 @@ const exOf = (sid, id) => V6.sessions[sid].exercises.find((e) => e.id === id);
 
 // ---------- Achilles rehab: daily, separate, and gated
 {
-  const cfg = L.rehabConfig(V6);
+  const cfg = L.rehabConfig(LIVE);
   assert(cfg, 'the plan carries an Achilles protocol');
   assertEq(cfg.movements.map((m) => `${m.sets}x${m.reps}`), ['3x15', '3x15'], 'both heel-raise variations, 3 x 15');
   assert(/below step level/i.test(cfg.technique), 'the technique copy carries the stretch below the step');
@@ -1115,7 +1173,26 @@ const exOf = (sid, id) => V6.sessions[sid].exercises.find((e) => e.id === id);
   assertEq(gauge.find((g) => g.id === 'rehab').done, false, 'unlogged rehab is not done');
   const done = { [rest]: r6(rest, { rehab: { heelRaisesDone: true, loadUsed: 0 } }) };
   assertEq(L.dayGauge(liveDoc, done, rest).find((g) => g.id === 'rehab').done, true, 'logged rehab fills the segment');
-  assert(L.nextChain(liveDoc, { [rest]: r6(rest) }, rest).some((s) => s.id === 'rehab'), 'rehab is a step on the NEXT chain');
+  // The heel raises are the loaded work of a rest day, so they come due before
+  // the walk, and both land after the afternoon snack: snack, rehab, walk, dinner.
+  const restChain = L.nextChain(liveDoc, { [rest]: r6(rest) }, rest).map((x) => x.id);
+  assert(restChain.includes('rehab'), 'rehab is a step on the NEXT chain');
+  const rAt = (id) => restChain.indexOf(id);
+  assert(rAt('rehab') > rAt('meal-snack'), 'the heel raises come after the afternoon snack');
+  assert(rAt('rehab') < rAt('steps'), 'and before the walk');
+  assert(rAt('steps') < rAt('meal-dinner'), 'with the walk still ahead of dinner');
+  assertEq(restChain[restChain.length - 1], 'checkin', 'the evening check-in is still last');
+  // The hour matches the position: due before the walk, not at the end of the day.
+  const rehabStep = L.nextChain(liveDoc, { [rest]: r6(rest) }, rest).find((x) => x.id === 'rehab');
+  const stepsStep = L.nextChain(liveDoc, { [rest]: r6(rest) }, rest).find((x) => x.id === 'steps');
+  assert(rehabStep.hour < stepsStep.hour, 'rehab comes due ahead of the walk on the clock too');
+  // Mid-afternoon, with the snack eaten, the bar asks for the heel raises and
+  // only hands off to the walk once they are logged.
+  const snacked = r6(rest, { weight: 218, sleepMinutes: 450,
+    meals: { breakfast: 'eaten', lunch: 'eaten', snack: 'eaten' } });
+  assertEq(L.nextAction(liveDoc, { [rest]: snacked }, [], rest, 15).id, 'rehab', 'after the snack the bar asks for the heel raises');
+  const raised = { ...snacked, rehab: { heelRaisesDone: true, loadUsed: 0 } };
+  assertEq(L.nextAction(liveDoc, { [rest]: raised }, [], rest, 16).id, 'steps', 'logged heel raises hand off to the walk');
 
   // The check-in is not complete until the morning reading is answered.
   const sympOnly = { [rest]: r6(rest, { checkin: { symptom: 'None' } }) };
@@ -1164,7 +1241,7 @@ const exOf = (sid, id) => V6.sessions[sid].exercises.find((e) => e.id === id);
   assertEq(seg(banked, tue), true, 'a short day inside a covered week is not a miss');
   assertEq(L.stepPace(liveDoc, banked, tue).total, 22200, 'the week total is the sum of its days');
   assertEq(L.stepPace(liveDoc, banked, tue).required, 18000, 'pace is the weekly target pro-rated by days elapsed');
-  assertEq(V6.targets.stepWeeklyTarget, 63000, 'the weekly target is 63,000');
+  assertEq(LIVE.targets.stepWeeklyTarget, 63000, 'the weekly target is 63,000');
 
   // Cardio minutes are never converted into steps. A logged bike session moves
   // the training segment and leaves the step count exactly where it was.
@@ -1172,8 +1249,8 @@ const exOf = (sid, id) => V6.sessions[sid].exercises.find((e) => e.id === id);
   assertEq(biked[tue].steps, undefined, 'logging cardio writes no steps');
   assertEq(seg(biked, tue), false, 'and does not clear the step segment');
   assertEq(L.dayGauge(liveDoc, biked, tue).find((g) => g.id === 'training').done, true, 'though it does clear training');
-  assert(/no steps/i.test(V6.schedule['2'].stepsNote), 'the interval day says it makes no steps');
-  assert(/counts toward/i.test(V6.schedule['6'].stepsNote), 'the hike says it does');
+  assert(/no steps/i.test(LIVE.schedule['2'].stepsNote), 'the interval day says it makes no steps');
+  assert(/counts toward/i.test(LIVE.schedule['6'].stepsNote), 'the hike says it does');
 }
 
 // ---------- the weekly recommendation ladder

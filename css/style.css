@@ -394,6 +394,7 @@ h1, h2, .display {
 
 .sheet .label { display: block; margin-bottom: 4px; }
 .sheet h2 { font-size: 19px; margin-bottom: 12px; }
+.sheet .ref-note { margin: -8px 0 0; line-height: 1.45; }
 .sheet .field { margin-top: 12px; }
 .sheet .field input { width: 100%; font-family: var(--mono); font-size: 22px; }
 .sheet .field .fl { display: block; margin-bottom: 5px; }

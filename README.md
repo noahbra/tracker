@@ -2,7 +2,7 @@
 
 Single-plan training and nutrition tracker. One user, one pre-written plan. The app's job is to make executing the plan easy and to say when the numbers show it needs adjusting.
 
-Built from `tracker-app-brief-v1.1`, currently running the v2.0 build spec (plan **v6**, effective Monday 8/24/2026). No framework, no build step: vanilla JS, static files, GitHub Pages.
+Built from `tracker-app-brief-v1.1`, currently running the v2.0 build spec (plan **v7**, effective Monday 8/24/2026). No framework, no build step: vanilla JS, static files, GitHub Pages.
 
 The plan it executes now: two strength days off the barbell squat and deadlift, three cardio exposures with the hike on Saturday, a phased chin-up progression, and a daily Achilles rehab protocol with a clinician gate.
 
@@ -66,8 +66,8 @@ Every exercise also names a **`progressionKey`**, and `progressionRules` in the 
 
 | `type` | What it does | Used by |
 |---|---|---|
-| `load` | Add the increment on a clean session. `cleanSessionsBeforeAdvance: 2` holds the load until it has been carried cleanly twice. | bench, press, rows, hip thrust, leg curl |
-| `repsThenLoad` | Reps first (`repFrom` → `repTo`), then the increment and back to `repFrom`. | split squat, reverse lunge |
+| `load` | Add the increment on a clean session. `cleanSessionsBeforeAdvance: 2` holds the load until it has been carried cleanly twice. | bench, press, rows, leg curl |
+| `repsThenLoad` | Reps first (`repFrom` → `repTo`), then the increment and back to `repFrom`. | split squat, reverse lunge, cable pull-through |
 | `repsThenVariation` | Reps to a ceiling, then offer the next entry in `variations`. Never more reps past the ceiling. | push-ups |
 | `repLadder` | A fixed bodyweight `ladder`, then `thenLoad`. Regresses a rung on a miss. | back extension |
 | `subjective` | Hold the load and state the gate; a session marked **Hit** is you saying the gate was cleared. | carries, side plank, Pallof press |
@@ -105,9 +105,11 @@ tests/*.browser.mjs     run against a real Chrome; see each file's header
 
 The bar under the header walks the day in one fixed order:
 
-**weight → sleep → workout → coffee → midday meal → afternoon snack → walk → dinner → dessert → Achilles heel raises → evening check-in.**
+**weight → sleep → workout → coffee → midday meal → afternoon snack → Achilles heel raises → walk → dinner → dessert → evening check-in.**
 
-Each step carries the hour it comes due (the meals use their own hours from `plan.json`; the walk comes due at 4pm), so the bar waits for a block rather than asking about dinner at breakfast. It never reorders the list around the clock: the first unsatisfied step whose hour has arrived is what it shows, and if nothing is due yet it names the earliest thing still unmarked. A due waist measurement slots in after the day's own steps, and an overdue backup only surfaces once the day is fully logged.
+On a Sunday the blood-pressure reading slots in ahead of the coffee, because caffeine lifts the number for a couple of hours and a reading taken after it is not comparable to the ones before it. Taking it and waving it off for the week both count as resolving it: a skippable prompt that cannot be skipped would hold the bar until midnight.
+
+The heel raises come before the walk, not after the day's meals. They are the loaded work of a rest day and the walk is the easy thing that follows them, so the order is snack, rehab, walk, dinner. Each step carries the hour it comes due (the meals use their own hours from `plan.json`; the heel raises at 3pm, the walk at 4pm), so the bar waits for a block rather than asking about dinner at breakfast. It never reorders the list around the clock: the first unsatisfied step whose hour has arrived is what it shows, and if nothing is due yet it names the earliest thing still unmarked. A due waist measurement slots in after the day's own steps, and an overdue backup only surfaces once the day is fully logged.
 
 The add-ons under the meals (creatine, the pre-training carb, the weekend shake) stay off the chain. Creatine goes in the coffee, so the coffee step already carries it, and a modifier has no "skipped" state: one you were never going to take would hold the bar for the rest of the day.
 
@@ -135,7 +137,7 @@ Each exercise in `config/plan.json` carries a `startWeight`. It is what the logg
 
 ## Measurements
 
-Waist every 14 days is the measurement the plan runs on, and blood pressure is the Sunday one. Resting heart rate and grip were dropped: neither changed a decision, and a reading nobody acts on is a prompt with no payoff.
+Waist every 14 days is the measurement the plan runs on, and blood pressure is the Sunday one, taken before the day's coffee. Resting heart rate and grip were dropped: neither changed a decision, and a reading nobody acts on is a prompt with no payoff.
 
 Readings taken before they were dropped stay on the record, still export, and still render with their names on the Reference tab. Ending the tracking is not the same as deleting the history.
 
@@ -175,6 +177,8 @@ node tests/measurements.browser.mjs
   - 6:30am daily — "Good morning. Weight and sleep."
   - Your usual session time — "Training today."
   - Every 45 min while at the desk — "Stand and walk."
+  - 3pm daily — "Heel raises, then the walk."
+  - Sunday morning — "Blood pressure, before the coffee."
   - 8:30pm daily — "Check-in: one tap, plus the Achilles."
 
 Everything else in the build spec through Phase 3 is implemented.

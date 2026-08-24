@@ -826,6 +826,387 @@
           },
           "note": "Intervals to 4 × 4, Friday Zone 2 in. The hike waits for week 5." }
       ]
+    },
+
+    {
+      "planVersion": 7,
+      "supersedes": 6,
+      "effectiveFrom": "2026-08-24",
+      "label": "Rev 6 — cable pull-through replaces the hip thrust on Strength A",
+      "migrationNote": "Version 6 with one substitution: the hip thrust comes out of Strength A and the cable pull-through goes in. Same glute and hinge job with no bar to balance on the hips and no setup at all. The resistance is horizontal, so almost nothing loads the spine, and the lift stays flat-footed, so it adds no Achilles load. Sets logged against `hipthrust` under version 6 stay valued exactly as recorded; the replacement logs under `pullthrough` and starts its own history.",
+
+      "targets": {
+        "proteinWeeklyAvg": 180,
+        "proteinAcceptableFloor": 160,
+        "calorieDailyTarget": 2275,
+        "satFatBudget": 19,
+        "stepTarget": 9000,
+        "stepWeeklyTarget": 63000,
+        "sleepTargetMinutes": 450,
+        "weightStart": 220,
+        "weightNow": 215,
+        "weightGoal": 195,
+        "waistIntervalDays": 14,
+        "zone2HrRange": [105, 125]
+      },
+
+      "goals": [
+        "Lose about 20 more pounds",
+        "Get strong",
+        "Like the mirror"
+      ],
+      "goalNote": "The goals are physique and health markers. They are deliberately not barbell numbers: the squat and deadlift came out of the plan because loading the spine kept costing weeks.",
+
+      "dayTypes": {
+        "lift":   { "calorieTarget": 2385, "mealModifiers": ["creatine", "preworkoutCarb"] },
+        "cardio": { "calorieTarget": 2275, "mealModifiers": ["creatine"] },
+        "walk":   { "calorieTarget": 2275, "mealModifiers": ["creatine"] },
+        "rest":   { "calorieTarget": 2211, "mealModifiers": ["creatine", "halfDinnerStarch"] }
+      },
+
+      "meals": [
+        {
+          "id": "breakfast",
+          "name": "Coffee",
+          "hour": 10,
+          "components": [
+            { "name": "Coffee + whole milk + psyllium, 1 tsp", "cal": 65, "protein": 1 }
+          ]
+        },
+        {
+          "id": "lunch",
+          "name": "Midday meal",
+          "hour": 12,
+          "components": [
+            { "name": "¾ c dry oats",              "cal": 225, "protein": 8 },
+            { "name": "1 c unsweetened soy milk",   "cal": 80,  "protein": 7 },
+            { "name": "1 tbsp ground flaxseed",     "cal": 37,  "protein": 2 },
+            { "name": "1 c blueberries",            "cal": 84,  "protein": 1 },
+            { "name": "1½ c 0% Greek yogurt",       "cal": 195, "protein": 35 },
+            { "name": "5 walnut halves",            "cal": 65,  "protein": 2 }
+          ]
+        },
+        {
+          "id": "snack",
+          "name": "Afternoon snack",
+          "hour": 14,
+          "components": [
+            { "name": "1½ c 2% cottage cheese",     "cal": 270, "protein": 36 },
+            { "name": "1 banana or other fruit",    "cal": 105, "protein": 1 }
+          ]
+        },
+        {
+          "id": "dinner",
+          "name": "Dinner",
+          "hour": 18,
+          "components": [
+            { "name": "4 oz potato or ¾ c farro",   "cal": 160, "protein": 4 },
+            { "name": "2 c veg + 2 tbsp olive oil", "cal": 320, "protein": 4 }
+          ]
+        },
+        {
+          "id": "dessert",
+          "name": "Dessert",
+          "hour": 19,
+          "components": [
+            { "name": "½ oz 85% dark chocolate",    "cal": 85,  "protein": 1 }
+          ]
+        }
+      ],
+
+      "weekdays": {
+        "1": { "name": "Monday", "calorieTarget": 2156, "proteinTarget": 155,
+               "meals": { "dinner": { "add": [ { "name": "Salmon, 8 oz", "cal": 465, "protein": 53 } ] } } },
+        "2": { "name": "Tuesday", "calorieTarget": 2111, "proteinTarget": 182,
+               "meals": { "dinner": { "add": [ { "name": "Chicken breast, 9 oz", "cal": 420, "protein": 80 } ] } } },
+        "3": { "name": "Wednesday", "calorieTarget": 2111, "proteinTarget": 182,
+               "meals": { "dinner": { "add": [ { "name": "Chicken breast, 9 oz", "cal": 420, "protein": 80 } ] } } },
+        "4": { "name": "Thursday", "calorieTarget": 2181, "proteinTarget": 162,
+               "meals": { "dinner": { "add": [ { "name": "Lean beef 90/10, 8 oz", "cal": 490, "protein": 60 } ] } } },
+        "5": { "name": "Friday", "calorieTarget": 2231, "proteinTarget": 164,
+               "mealModifiers": ["weekendShake"],
+               "meals": { "dinner": { "name": "Dinner out", "estimate": true,
+                 "components": [ { "name": "Burrito bowl — chicken, rice, beans, guac", "cal": 900, "protein": 45 } ] } } },
+        "6": { "name": "Saturday", "calorieTarget": 2431, "proteinTarget": 164,
+               "mealModifiers": ["weekendShake"],
+               "meals": { "dinner": { "name": "Dinner out", "estimate": true,
+                 "components": [ { "name": "Burger + fries, restaurant single", "cal": 1100, "protein": 45 } ] } } },
+        "0": { "name": "Sunday", "calorieTarget": 2331, "proteinTarget": 149,
+               "mealModifiers": ["weekendShake"],
+               "meals": { "dinner": { "name": "Dinner out", "estimate": true,
+                 "components": [ { "name": "Thai — curry or noodle + rice", "cal": 1000, "protein": 30 } ] } } }
+      },
+
+      "mealModifiers": [
+        { "id": "creatine", "label": "Creatine, 3–5 g in water",
+          "cal": 0, "protein": 0, "optional": true },
+        { "id": "preworkoutCarb", "label": "Pre-training carb (½ c rice or fruit)",
+          "cal": 110, "protein": 2, "optional": true },
+        { "id": "halfDinnerStarch", "label": "Half dinner starch",
+          "cal": -80, "protein": -2, "optional": true, "appliesTo": "dinner" },
+        { "id": "weekendShake", "label": "Whey, 1 scoop in water",
+          "cal": 120, "protein": 25, "optional": true }
+      ],
+
+      "dietNotes": [
+        "Protein is a weekly average, not a daily target: 180 g is the aim, 160 g is the floor. The two chicken days bank the surplus that carries the weekend.",
+        "The dinner rotation is the real calorie number for each day. The day-type adjustments sit on top of it: tick the pre-training carb on a strength day, tick the half dinner starch on a rest day.",
+        "Half dinner starch is a tick, not an automatic subtraction. On a restaurant night there is no plan starch to halve.",
+        "Cottage cheese once a day, 1½ cups, never more. Do not close a protein gap with a second serving.",
+        "Greek yogurt stays at 1½ cups in the midday meal.",
+        "No honey. The fruit already sweetens the cottage cheese.",
+        "Psyllium goes in the coffee with a full glass of water, at least 2 hours from any medication.",
+        "Creatine 3–5 g daily in water. Zero calories, tracked as adherence only.",
+        "Saturated fat budget ~19 g/day. Weekdays run well under it; the weekend meals are the exposure. Do not stack a burger and a coconut curry back to back.",
+        "Soluble fiber is doing the LDL work: oats, psyllium, flaxseed, beans, soy. Keep them in.",
+        "Salmon once a week and olive oil as the main fat are deliberate lipid choices.",
+        "Restaurant estimates are ±20%. Order protein-forward: double meat in the bowl, a bigger patty, a meat dish over mostly noodles.",
+        "The gap between 165 g and the 180 g aim is entirely weekend. Close it at the restaurant or with a second weekend shake, never with more cottage cheese. 165 g is already above the muscle-retention floor for a cut.",
+        "Day totals exclude the optional pre-training carb; tick it on the days you take it."
+      ],
+
+      "schedule": {
+        "1": { "type": "lift",   "rotation": "AB", "label": "Strength A", "minutes": 55 },
+        "2": { "type": "cardio", "mode": "intervals", "minutes": 35,
+               "prescription": "4 × 4 min hard / 3 min easy",
+               "stepsNote": "Bike or rower makes no steps. The day still expects ordinary walking." },
+        "3": { "type": "rest",   "walkTo": 9000 },
+        "4": { "type": "lift",   "rotation": "AB", "label": "Strength B", "minutes": 55 },
+        "5": { "type": "cardio", "mode": "zone2", "minutes": 45,
+               "prescription": "45 min easy",
+               "stepsNote": "If you walk it, it counts toward today's steps. If you bike it, it does not." },
+        "6": { "type": "cardio", "mode": "hike", "minutes": 90,
+               "prescription": "3–4 miles, HR wanders with the terrain",
+               "stepsNote": "Counts toward today's steps.",
+               "achillesFlag": "hike",
+               "trimFirst": true },
+        "0": { "type": "rest",   "walkTo": 9000 }
+      },
+
+      "scheduleNote": "Two strength days, three cardio exposures. Intervals on Tuesday so Friday's easy Zone 2 sits between the two hard efforts. The Saturday hike is the first session to trim if the deficit starts costing recovery.",
+      "zone2Guidance": "Bike, rower, or steep-incline treadmill walk while over 200 lb.",
+
+      "warmup": {
+        "all": "6–8 min bike or incline walk, leg swings, glute bridges, band pull-aparts, one ramp-up set.",
+        "liftB": "Add 1 min of prone press-ups only if they make the back feel better. Drop them if they are neutral; they are not mandatory."
+      },
+
+      "sessions": {
+        "liftA": {
+          "name": "Strength A",
+          "day": "Monday",
+          "note": "All straight sets. About 52 minutes. If time is tight, the Pallof press is the only thing worth pairing: it costs almost no recovery.",
+          "exercises": [
+            { "id": "bench", "name": "Barbell bench press", "sets": 3, "reps": 5, "increment": 5, "unit": "lb", "rest": "2–3 min", "startWeight": 115, "progressionKey": "upperCompound" },
+            { "id": "pullthrough", "name": "Cable pull-through", "sets": 3, "reps": 10, "increment": 10, "unit": "lb", "rest": "90 s", "startWeight": 50, "startLabel": "50–60 on the stack", "progressionKey": "cableHinge",
+              "note": "Low pulley, rope, facing away. Straddle the cable, walk out a step for tension, hinge at the hips with soft knees, then drive the hips forward and squeeze at the top. The hinge is at the hips, not the lower back: flat back, and the stretch belongs in the hamstrings. Felt in the low back means rounding; reset and go lighter. Horizontal resistance, so the spine is spared, and flat-footed, so the Achilles is. A glute drive machine is the same lift if the gym has one." },
+            { "id": "bsquat", "name": "Bulgarian split squat", "sets": 3, "reps": 8, "increment": 5, "unit": "lb ea", "rest": "90 s", "scheme": "3 × 8 / leg", "startWeight": 15, "startLabel": "15 / hand", "progressionKey": "dbLeg" },
+            { "id": "csrow", "name": "Chest-supported machine row", "sets": 3, "reps": 8, "increment": 5, "unit": "lb", "rest": "90 s", "startWeight": 100, "progressionKey": "upperCompound",
+              "note": "The chest stays supported. A seated cable row held upright, or a chest-supported T-bar, are the same lift. An unsupported bent-over row is not: it puts back the spinal load this exercise exists to avoid." },
+            { "id": "suitcase", "name": "Suitcase carry", "sets": 2, "reps": 1, "increment": 5, "unit": "lb ea", "rest": "as needed", "type": "carry", "scheme": "2 × 40 yd / side", "startWeight": 45, "startLabel": "45 / side", "progressionKey": "carry" },
+            { "id": "pallof", "name": "Pallof press", "sets": 2, "reps": 10, "increment": 5, "unit": "lb", "rest": "45 s", "scheme": "2 × 10 / side", "startWeight": 15, "startLabel": "15–20 cable", "progressionKey": "pallof" }
+          ]
+        },
+        "liftB": {
+          "name": "Strength B",
+          "day": "Thursday",
+          "note": "All straight sets. About 55 minutes.",
+          "exercises": [
+            { "id": "ohp", "name": "Overhead press", "sets": 3, "reps": 5, "increment": 5, "taperAbove": 80, "taperIncrement": 2.5, "roundToNearest": 2.5, "unit": "lb", "rest": "2–3 min", "startWeight": 75, "progressionKey": "upperCompound",
+              "note": "Seated dumbbell press instead if standing makes you lean back." },
+            { "id": "chinup", "name": "Chin-up progression", "phased": "chinup", "rest": "90 s" },
+            { "id": "lunge", "name": "Reverse lunge or step-up", "sets": 3, "reps": 8, "increment": 5, "unit": "lb ea", "rest": "90 s", "scheme": "3 × 8 / leg", "startWeight": 15, "startLabel": "15 / hand", "progressionKey": "dbLeg", "achillesFlag": "stepup",
+              "note": "The step-up loads the Achilles harder than the reverse lunge. Regress to the lunge before touching the rehab load." },
+            { "id": "legcurl", "name": "Seated or lying leg curl", "sets": 3, "reps": 10, "increment": 5, "unit": "lb", "rest": "90 s", "startWeight": 70, "progressionKey": "hingeGlute" },
+            { "id": "pushup", "name": "Push-ups", "sets": 2, "reps": 8, "unit": "reps", "entry": "reps", "rest": "60 s", "scheme": "2 × 8–15", "startLabel": "bodyweight", "progressionKey": "pushup" },
+            { "id": "backext", "name": "45° back extension", "sets": 2, "reps": 10, "unit": "lb", "rest": "60 s", "scheme": "2 × 10", "startWeight": 0, "startLabel": "bodyweight", "increment": 5, "progressionKey": "backext",
+              "note": "This one is not shear-free: it loads the lumbar extensors. Bodyweight only to start, and stop at the first objection from the back." },
+            { "id": "sideplank", "name": "Side plank", "sets": 2, "reps": 30, "unit": "sec", "entry": "seconds", "rest": "45 s", "scheme": "2 × 30 s / side", "startLabel": "bodyweight", "progressionKey": "coreHold" },
+            { "id": "farmer", "name": "Farmer's carry", "sets": 2, "reps": 1, "increment": 10, "unit": "lb ea", "rest": "as needed", "type": "carry", "scheme": "2 × 40 yd", "startWeight": 60, "startLabel": "60 / hand", "progressionKey": "carry" }
+          ]
+        }
+      },
+
+      "restGuidance": "Rest 3 min on the first lift, 2–3 min on the second, 90 s on the accessories. Supersets are out of the plan; both days fit without them.",
+
+      "startLoadNote": "Every starting load here is an estimate off the profile, not a number you logged. Week 1 is calibration: every working set should end about 3 reps in reserve. Too light fixes itself in a session or two. Too heavy risks a flare, and the Achilles load is the one to under-set.",
+
+      "progression": {
+        "onAllRepsCompleted": "increment",
+        "onHit": "increment",
+        "onGrindy": "repeat",
+        "onMiss": "repeat",
+        "consecutiveMissesBeforeDeload": 2,
+        "deloadFactor": 0.9,
+        "roundToNearest": 5,
+        "layoffDays": 10,
+        "layoffFactor": 0.9,
+        "neverGrind": "Most working sets stay 1–3 reps in reserve. Holding a load through the cut is success, not failure."
+      },
+
+      "progressionRules": {
+        "upperCompound": {
+          "type": "load",
+          "rule": "Add the increment when every set hits its reps at about 2 reps in reserve, clean.",
+          "note": "An increase is not required every session. Holding the load while the waist comes down is the plan working."
+        },
+        "hingeGlute": {
+          "type": "load",
+          "cleanSessionsBeforeAdvance": 2,
+          "rule": "Smallest increment after two clean sessions at the same load, both at 2+ reps in reserve.",
+          "note": "Two comfortable sessions before it moves, not one."
+        },
+        "cableHinge": {
+          "type": "repsThenLoad",
+          "repFrom": 10,
+          "repTo": 12,
+          "rule": "Reps first: 10, 11, 12. Then up one pin and reset to 10.",
+          "note": "Let the hinge be the point, not the weight. It runs lighter than the thrust it replaced because there is no bench leverage behind it."
+        },
+        "dbLeg": {
+          "type": "repsThenLoad",
+          "repFrom": 8,
+          "repTo": 10,
+          "rule": "Reps first: 8, 9, 10. Then add the increment per dumbbell and reset to 8."
+        },
+        "pushup": {
+          "type": "repsThenVariation",
+          "repFrom": 8,
+          "repTo": 20,
+          "variations": ["Push-ups", "Feet-elevated push-ups", "Weighted-vest push-ups"],
+          "rule": "Work toward 2 × 15–20, then take a harder variation. Not more reps beyond 20."
+        },
+        "backext": {
+          "type": "repLadder",
+          "ladder": [10, 12, 15],
+          "thenLoad": 5,
+          "rule": "Bodyweight 2 × 10, then 2 × 12, then 2 × 15. Only then add 5–10 lb.",
+          "note": "Regress at the first objection from the back."
+        },
+        "carry": {
+          "type": "subjective",
+          "rule": "Add 5–10 lb when posture and walking speed both stay excellent.",
+          "note": "Judged by how it looked, not by a rep count."
+        },
+        "coreHold": {
+          "type": "subjective",
+          "rule": "Add time, reps, or the smallest load once the prescribed work stays easy."
+        },
+        "pallof": {
+          "type": "subjective",
+          "rule": "Add the smallest cable increment once the prescribed sets stay easy and the ribs stay down."
+        }
+      },
+
+      "chinup": {
+        "name": "Chin-up progression",
+        "moraleNote": "At 6'5\" and 215 lb this legitimately takes months. Every pound off the scale makes it easier: it is a strength-to-bodyweight ratio, and you are working on both ends of it.",
+        "phases": [
+          {
+            "phase": 1,
+            "name": "Build the pulldown",
+            "prescription": "Lat pulldown, 3 × 8",
+            "exercises": [
+              { "id": "pulldown", "name": "Lat pulldown", "sets": 3, "reps": 8, "increment": 5, "unit": "lb", "rest": "90 s", "startWeight": 90, "progressionKey": "upperCompound" }
+            ],
+            "advance": { "kind": "load", "exerciseId": "pulldown", "target": 160, "reps": 8 },
+            "advanceLabel": "Pulldown 3 × 8 at 160 lb",
+            "note": "160 lb is about three-quarters of bodyweight. That is the surplus an unassisted chin-up actually needs."
+          },
+          {
+            "phase": 2,
+            "name": "Cross the gap",
+            "prescription": "1 set on the bar + 2 sets pulldown. Shift the ratio toward the bar as it gets easier.",
+            "exercises": [
+              { "id": "chinbar", "name": "Bar work — negatives or band-assisted", "sets": 1, "reps": 5, "entry": "barWork", "rest": "90 s", "progressionKey": "chinBar" },
+              { "id": "pulldown", "name": "Lat pulldown", "sets": 2, "reps": 8, "increment": 5, "unit": "lb", "rest": "90 s", "startWeight": 160, "progressionKey": "upperCompound" }
+            ],
+            "advance": { "kind": "unassisted", "target": 1 },
+            "advanceLabel": "One clean unassisted chin-up",
+            "testEveryDays": 14,
+            "note": "Negatives: step or jump to chin-over-bar, lower for 3–5 seconds, 3–5 singles. Band: band over the bar, one foot in it, thick band first and thinner over time."
+          },
+          {
+            "phase": 3,
+            "name": "Accumulate reps",
+            "prescription": "Strict chin-ups, 3 sets. Ladder up: 3/3/3, then 4/3/3, and on toward 8/8/8.",
+            "exercises": [
+              { "id": "chinup", "name": "Chin-up, strict", "sets": 3, "reps": 3, "entry": "reps", "rest": "90 s", "progressionKey": "chinReps" }
+            ],
+            "advance": { "kind": "reps", "exerciseId": "chinup", "perSet": 8 },
+            "advanceLabel": "3 × 8 strict",
+            "note": "Add one rep anywhere you can each session. At 3 × 8, put on a dip belt, drop to about 3 × 5 and start the weighted version."
+          }
+        ]
+      },
+
+      "rehab": {
+        "achilles": {
+          "id": "achilles",
+          "name": "Achilles heel raises",
+          "cadence": "daily",
+          "cadenceNote": "Daily, or near enough, until it settles. Then three days a week.",
+          "movements": [
+            { "id": "straight", "name": "Straight-leg heel raise", "sets": 3, "reps": 15, "targets": "gastrocnemius" },
+            { "id": "bent", "name": "Bent-knee heel raise", "sets": 3, "reps": 15, "targets": "soleus" }
+          ],
+          "technique": "On a step, heels off the edge. Rise for about 3 seconds, lower for about 3 seconds, below step level into a stretch. Heavy and slow, not a burnout set.",
+          "progression": "Add load, not reps. Bodyweight, then a dumbbell or a loaded backpack. It moves up when 3 × 15 of both is manageable and the next morning is no worse.",
+          "startLoad": 0,
+          "loadIncrement": 5,
+          "loadUnit": "lb",
+          "painRule": "Up to 4 or 5 out of 10 during the exercise is acceptable. The next morning is what decides it.",
+          "morningQuestion": "Achilles this morning, against yesterday",
+          "morningOptions": ["better", "same", "worse"],
+          "worseResponse": "Reduce the load next session. Before you touch the rehab load, pull back the load-bearing sessions in this order.",
+          "pullBackOrder": [
+            "Drop the Saturday hike.",
+            "Regress step-ups to reverse lunges.",
+            "Shift cardio to the bike or rower."
+          ],
+          "medicalFlag": {
+            "id": "achillesClinician",
+            "text": "Bilateral, and it came on without an injury. Get a clinician to look before self-managing this: confirm mid-portion against insertional, and ask about the statin and tendon association.",
+            "action": "Cleared with clinician"
+          }
+        }
+      },
+
+      "habits": {
+        "movementBreak": {
+          "everyMinutes": 45,
+          "text": "Stand and walk for a couple of minutes.",
+          "why": "Serves the back and the step count at the same time."
+        },
+        "extension": {
+          "text": "Prone press-ups, 1 min, before Strength B.",
+          "conditional": "Only if they reliably make the back feel better. Drop them if they are neutral."
+        }
+      },
+
+      "stepLogic": {
+        "dailyTarget": 9000,
+        "weeklyTarget": 63000,
+        "rule": "9,000 is a total movement floor, not a number on top of the walking sessions. Zone 2 walks and hikes count toward it.",
+        "weeklyRule": "A 14,000-step hike banks against an 8,200-step recovery day. The week is what has to clear 63,000.",
+        "nonStepCardio": "Bike, rower, and elliptical minutes satisfy the cardio prescription and produce no steps. They are never converted into step-equivalents.",
+        "why": "Steps widen the deficit without the recovery and appetite cost of more training, and they can be turned up as maintenance falls."
+      },
+
+      "phases": [
+        { "weeks": [1, 2], "stepTarget": 6500,
+          "scheduleOverrides": {
+            "2": { "type": "cardio", "mode": "intervals", "minutes": 30, "prescription": "3 × 4 min hard / 3 min easy" },
+            "5": { "type": "rest", "suppressed": true },
+            "6": { "type": "walk", "minutes": 45, "optional": true }
+          },
+          "note": "Loads deliberately light. Intervals 3 × 4 only; no Friday Zone 2, no hike yet." },
+        { "weeks": [3, 4], "stepTarget": 8000,
+          "scheduleOverrides": {
+            "6": { "type": "walk", "minutes": 60, "optional": true }
+          },
+          "note": "Intervals to 4 × 4, Friday Zone 2 in. The hike waits for week 5." }
+      ]
     }
   ]
 }

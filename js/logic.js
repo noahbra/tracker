@@ -896,14 +896,19 @@ export function waistDue(configDoc, measurements, dateStr) {
 // ---------- NEXT bar (§7.3) ----------
 
 // The day runs in one fixed order and the NEXT bar walks it in that order:
-// weight, sleep, training, then the meals at their own hours with the walk
-// between the afternoon snack and dinner, and the evening check-in last.
-// Each step carries the hour it comes due, so the
+// weight, sleep, training, then the meals at their own hours with the heel
+// raises and the walk between the afternoon snack and dinner, and the evening
+// check-in last. Each step carries the hour it comes due, so the
 // bar waits for a block rather than nagging about dinner at breakfast, but it
 // never reorders the list around the clock.
 const STEPS_HOUR = 16;
 // Rehab is near-daily and sits after the day's training rather than inside it.
-const REHAB_HOUR = 17;
+// It comes due ahead of the walk: heel raises are the loaded work and the walk
+// is the easy thing that follows them, never the other way round.
+const REHAB_HOUR = 15;
+// Blood pressure is the Sunday reading, and caffeine raises it, so it comes due
+// before the 10am coffee rather than whenever the day gets around to it.
+const BP_HOUR = 8;
 const CHECKIN_HOUR = 19;
 
 // Default hours for a meal the plan does not time itself. The hour a block is
@@ -911,9 +916,18 @@ const CHECKIN_HOUR = 19;
 // are the plan's own times.
 const MEAL_HOURS = { breakfast: 6, lunch: 11, snack: 14, dinner: 17, dessert: 19 };
 
+// The Sunday reading is resolved once it is taken or once it is waved off for
+// the week. Both are resolutions: a skippable prompt that cannot be skipped
+// would hold the bar for the rest of the day.
+export function bpResolved(measurements, meta, dateStr) {
+  const ws = weekStart(dateStr);
+  if (meta && meta.measurementsDismissed === ws) return true;
+  return (measurements || []).some((m) => m.kind === 'bloodPressure' && m.takenAt.slice(0, 10) >= ws);
+}
+
 // The day's ordered steps, each with the hour it comes due and whether it is
 // already satisfied. Exported so the order is testable on its own.
-export function nextChain(configDoc, records, dateStr) {
+export function nextChain(configDoc, records, dateStr, measurements = [], meta = {}) {
   const rec = records[dateStr] || {};
   const plan = dayPlan(configDoc, dateStr);
   const offered = offeredSession(configDoc, records, dateStr);
@@ -948,20 +962,36 @@ export function nextChain(configDoc, records, dateStr) {
   // it, and a modifier has no "skipped" state: one that was never going to
   // happen would stall the bar for the rest of the day.
 
-  // Meals in plan order, with the walk dropped in ahead of the first meal that
-  // comes due after it — the afternoon snack is eaten, then you walk, then dinner.
-  // Rehab and the check-in follow at the end of the chain.
+  // The Sunday reading goes ahead of the meals, because coffee is the first of
+  // them and caffeine moves the number the reading exists to capture.
+  const rehab = rehabConfig(config);
+  if (weekday(dateStr) === 0) {
+    out.push({
+      id: 'bp',
+      label: 'Blood pressure',
+      hour: BP_HOUR,
+      done: bpResolved(measurements, meta, dateStr),
+    });
+  }
+
+  // Meals in plan order, with the heel raises and then the walk dropped in
+  // ahead of the first meal that comes due after them — the afternoon snack is
+  // eaten, then the rehab, then the walk, then dinner. The check-in is last.
   const pace = stepPace(configDoc, records, dateStr);
+  const rehabStep = rehab
+    ? { id: 'rehab', label: 'Achilles heel raises', hour: REHAB_HOUR, done: rehabDone(records, dateStr) }
+    : null;
   const walk = {
     id: 'steps',
     label: 'Log steps',
     hour: STEPS_HOUR,
     done: (rec.steps || 0) >= plan.stepTarget || !!(pace && pace.onPace && rec.steps != null),
   };
+  const afternoon = () => { if (rehabStep) out.push(rehabStep); out.push(walk); };
   let walked = false;
   for (const meal of mealsFor(config, dateStr)) {
     const at = meal.hour != null ? meal.hour : (MEAL_HOURS[meal.id] != null ? MEAL_HOURS[meal.id] : 6);
-    if (!walked && at > walk.hour) { out.push(walk); walked = true; }
+    if (!walked && at > walk.hour) { afternoon(); walked = true; }
     out.push({
       id: `meal-${meal.id}`,
       label: `Mark ${meal.name.toLowerCase()}`,
@@ -969,12 +999,7 @@ export function nextChain(configDoc, records, dateStr) {
       done: !!(rec.meals && rec.meals[meal.id]),
     });
   }
-  if (!walked) out.push(walk);
-
-  const rehab = rehabConfig(config);
-  if (rehab) {
-    out.push({ id: 'rehab', label: 'Achilles heel raises', hour: REHAB_HOUR, done: rehabDone(records, dateStr) });
-  }
+  if (!walked) afternoon();
 
   out.push({
     id: 'checkin',
@@ -990,8 +1015,8 @@ export function nextChain(configDoc, records, dateStr) {
 // wins; failing that, the earliest unsatisfied step still ahead of its hour.
 // `exportStale` lets the NEXT bar surface an overdue backup once the day itself
 // is fully logged.
-export function nextAction(configDoc, records, measurements, dateStr, hour, exportStale = false) {
-  const chain = nextChain(configDoc, records, dateStr);
+export function nextAction(configDoc, records, measurements, dateStr, hour, exportStale = false, meta = {}) {
+  const chain = nextChain(configDoc, records, dateStr, measurements, meta);
 
   for (const s of chain) {
     if (!s.done && hour >= s.hour) return { id: s.id, label: s.label };

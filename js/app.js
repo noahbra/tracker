@@ -237,7 +237,7 @@ function renderToday() {
   const plan = L.dayPlan(state.configDoc, t);
   const offered = L.offeredSession(state.configDoc, state.records, t);
   const gauge = L.dayGauge(state.configDoc, state.records, t);
-  const next = L.nextAction(state.configDoc, state.records, state.measurements, t, viewHour(), exportStale(t));
+  const next = L.nextAction(state.configDoc, state.records, state.measurements, t, viewHour(), exportStale(t), state.meta);
   const nut = L.dayNutrition(state.configDoc, rec.date ? rec : { ...rec, date: t });
   const avg = L.rollingAverage(state.records, t);
   const slope = L.trendSlope(state.records, t);
@@ -373,19 +373,21 @@ function renderToday() {
   // training
   html += renderTraining(rec, plan, offered);
 
-  // Achilles rehab — daily, and deliberately outside the strength days (§9.1)
-  html += renderRehab(rec);
+  // Sunday measurements prompt (§7.12) — ahead of the meals, because coffee is
+  // the first of them and caffeine moves the number this reading captures.
+  if (L.weekday(t) === 0 && state.meta.measurementsDismissed !== L.weekStart(t) && !measuredThisWeek(t)) {
+    html += `<button class="prompt" id="sec-bp" data-act="sheet" data-sheet="measurements">
+      <span class="title">Sunday measurements</span>
+      <span class="sub">Blood pressure, before coffee. Skippable.</span>
+    </button>`;
+  }
 
   // meals
   html += renderMeals(rec, plan, config);
 
-  // Sunday measurements prompt (§7.12)
-  if (L.weekday(t) === 0 && state.meta.measurementsDismissed !== L.weekStart(t) && !measuredThisWeek(t)) {
-    html += `<button class="prompt" data-act="sheet" data-sheet="measurements">
-      <span class="title">Sunday measurements</span>
-      <span class="sub">Blood pressure. Skippable.</span>
-    </button>`;
-  }
+  // Achilles rehab — daily, and deliberately outside the strength days (§9.1).
+  // It sits below the meals because the day runs snack, heel raises, walk.
+  html += renderRehab(rec);
 
   // check-in
   html += renderCheckin(rec);
@@ -1146,6 +1148,7 @@ function sheetHtml(sheet) {
   }
   if (sheet.kind === 'measurements') {
     return `<span class="label">Sunday measurement</span><h2>Blood pressure, skippable</h2>
+      <p class="ref-note">Before coffee: caffeine lifts the reading for a couple of hours, and a number taken after it is not comparable to the ones before it.</p>
       <div class="two">
         <div class="field"><span class="fl label">Systolic</span><input id="sh-sys" type="text" inputmode="numeric" placeholder="125"></div>
         <div class="field"><span class="fl label">Diastolic</span><input id="sh-dia" type="text" inputmode="numeric" placeholder="80"></div>
@@ -1450,6 +1453,8 @@ function handleAction(act, el) {
         else { state.sheet = { kind: 'cardio', autofocus: true }; renderOverlay(); }
       } else if (id.startsWith('meal-')) {
         document.getElementById('sec-meals')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else if (id === 'bp') {
+        state.sheet = { kind: 'measurements', autofocus: true }; renderOverlay();
       } else if (id === 'rehab') {
         document.getElementById('sec-rehab')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       } else if (id === 'checkin') {
