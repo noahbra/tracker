@@ -668,6 +668,19 @@ export function chinupState(configDoc, records, dateStr) {
 
   if (adv.kind === 'load') {
     target = adv.target;
+    // A chin-up is a strength-to-bodyweight ratio, and the plan's fixed target
+    // is that ratio evaluated once, at one weight. Left fixed it silently gets
+    // stricter every pound down, so `orBodyweightPct` runs the ratio beside it
+    // and whichever gate arrives first opens the phase. It can only lower the
+    // bar: gaining weight never makes the phase harder than the plan's number.
+    let bwTarget = null;
+    if (adv.orBodyweightPct != null) {
+      const bw = rollingAverage(records, dateStr);
+      if (bw != null) {
+        bwTarget = roundTo(bw * adv.orBodyweightPct, 5);
+        target = Math.min(target, bwTarget);
+      }
+    }
     const need = adv.reps != null ? adv.reps : 8;
     for (const s of histFor(adv.exerciseId)) {
       if (s.logged.length && s.logged.every((x) => x.reps >= need)) {
@@ -676,6 +689,9 @@ export function chinupState(configDoc, records, dateStr) {
     }
     met = current >= target;
     detail = `${current || 0} of ${target} lb`;
+    if (bwTarget != null && bwTarget < adv.target) {
+      detail += ` (${Math.round(adv.orBodyweightPct * 100)}% of bodyweight, below the plan's ${adv.target})`;
+    }
   } else if (adv.kind === 'unassisted') {
     target = adv.target != null ? adv.target : 1;
     let lastTest = null;

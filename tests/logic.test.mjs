@@ -1158,6 +1158,46 @@ const exOf = (sid, id) => LIVE.sessions[sid].exercises.find((e) => e.id === id);
   assertEq(L.chinupState(liveDoc, at888, '2026-10-01').next, null, 'there is no phase 4 to be offered');
 }
 
+// ---------- v9: the phase 1 gate also reads as a share of bodyweight
+{
+  const D = '2026-09-03';                       // under v9, effective 2026-08-28
+  const weighed = (lb) => {
+    const out = {};
+    for (let i = 0; i < 14; i++) {
+      const d = L.addDays('2026-08-28', i);
+      out[d] = { date: d, schemaVersion: 2, planVersion: 9, weight: lb, meals: {}, modifiers: {} };
+    }
+    return out;
+  };
+
+  assertEq(L.chinupState(liveDoc, {}, D).target, 160, 'with no weight logged the gate is the plan number');
+
+  // At 200 lb three-quarters is 150, below the plan's fixed 160, so the ratio
+  // is the gate that binds and the target comes down with the scale.
+  const light = weighed(200);
+  assertEq(L.chinupState(liveDoc, light, D).target, 150, 'at 200 lb the gate is 150, three-quarters of bodyweight');
+  assert(/bodyweight/i.test(L.chinupState(liveDoc, light, D).detail), 'and the card says why the number moved');
+
+  const at150 = { ...light };
+  at150['2026-09-03'] = { ...at150['2026-09-03'], workout: { sessionId: 'liftB', completedAt: '2026-09-03T07:30:00', marks: { pulldown: 'hit' },
+    sets: { 'pulldown:0': { weight: 150, reps: 8 }, 'pulldown:1': { weight: 150, reps: 8 }, 'pulldown:2': { weight: 150, reps: 8 } } } };
+  assertEq(L.chinupState(liveDoc, at150, '2026-09-04').met, true, '150 for 8 at 200 lb opens phase 2');
+  assertEq(L.chinupPhase(liveDoc, at150, '2026-09-04'), 1, 'and still only prompts — it does not advance');
+
+  // The ratio can only lower the gate. Gaining weight never makes it harder
+  // than the number the plan itself set.
+  assertEq(L.chinupState(liveDoc, weighed(240), D).target, 160, 'at 240 lb the gate stays at 160, never above it');
+
+  // Reps are still part of the gate at the lowered target.
+  const short = { ...light };
+  short['2026-09-03'] = { ...short['2026-09-03'], workout: { sessionId: 'liftB', completedAt: '2026-09-03T07:30:00', marks: { pulldown: 'hit' },
+    sets: { 'pulldown:0': { weight: 150, reps: 5 }, 'pulldown:1': { weight: 150, reps: 5 }, 'pulldown:2': { weight: 150, reps: 5 } } } };
+  assertEq(L.chinupState(liveDoc, short, '2026-09-04').met, false, '150 for 5 is not 150 for 8, whatever the gate is');
+
+  // v8 is untouched: a day before the ratio gate existed still reads 160.
+  assertEq(L.chinupState(liveDoc, weighed(200), '2026-08-27').target, 160, 'under v8 the gate is still the flat 160');
+}
+
 // ---------- Achilles rehab: daily, separate, and gated
 {
   const cfg = L.rehabConfig(LIVE);

@@ -78,7 +78,7 @@ A **carry** is the one place the second box is not reps. The farmer's carry sets
 
 ### The chin-up, which is a phase and not a load
 
-`chinup.phases` holds three: build the pulldown to 160 lb, cross the gap with negatives or a band, then accumulate reps to 3 × 8. The app works out which phase you are in, shows **only that one**, and tracks how close its trigger is. Meeting a trigger **prompts**; the phase moves when you accept it, and accepting is what writes `chinPhase` onto that day's workout. Each phase names its own real exercises (`pulldown`, `chinbar`, `chinup`), so history survives the change.
+`chinup.phases` holds three: build the pulldown, cross the gap with negatives or a band, then accumulate reps to 3 × 8. Phase 1's gate is two numbers, not one: `target: 160` and `orBodyweightPct: 0.75`, and it opens on whichever arrives first. A chin-up is a strength-to-bodyweight ratio, so a target fixed at one weight gets stricter every pound down; the ratio gate reads the 7-day rolling average and can only lower the bar, never raise it above the plan's own number. The app works out which phase you are in, shows **only that one**, and tracks how close its trigger is. Meeting a trigger **prompts**; the phase moves when you accept it, and accepting is what writes `chinPhase` onto that day's workout. Each phase names its own real exercises (`pulldown`, `chinbar`, `chinup`), so history survives the change.
 
 ### The Achilles protocol
 
