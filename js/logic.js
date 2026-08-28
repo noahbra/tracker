@@ -569,7 +569,9 @@ export function progression(configDoc, records, exerciseId, exCfg, todayStr) {
         ...defaults,
         suggested: carriesLoad ? lastLoad : null,
         reps: rung,
-        cue: `${exCfg.sets} × ${rung} at bodyweight — the ladder is finished`,
+        cue: carriesLoad
+          ? `${exCfg.sets} × ${rung} — the ladder is finished`
+          : `${exCfg.sets} × ${rung} at bodyweight — the ladder is finished`,
         tone: 'done',
         prompt: rule.thenLoad ? { kind: 'load', to: rule.thenLoad, label: `Add ${rule.thenLoad} lb and drop back to ${exCfg.sets} × ${ladder[0]}` } : null,
       };

@@ -67,12 +67,14 @@ Every exercise also names a **`progressionKey`**, and `progressionRules` in the 
 | `type` | What it does | Used by |
 |---|---|---|
 | `load` | Add the increment on a clean session. `cleanSessionsBeforeAdvance: 2` holds the load until it has been carried cleanly twice. | bench, press, rows, leg curl |
-| `repsThenLoad` | Reps first (`repFrom` → `repTo`), then the increment and back to `repFrom`. | split squat, reverse lunge, cable pull-through |
+| `repsThenLoad` | Reps first (`repFrom` → `repTo`), then the increment and back to `repFrom`. | split squat, cable pull-through, leg extension |
 | `repsThenVariation` | Reps to a ceiling, then offer the next entry in `variations`. Never more reps past the ceiling. | push-ups |
-| `repLadder` | A fixed bodyweight `ladder`, then `thenLoad`. Regresses a rung on a miss. | back extension |
-| `subjective` | Hold the load and state the gate; a session marked **Hit** is you saying the gate was cleared. | carries, side plank, Pallof press |
+| `repLadder` | A fixed `ladder` of rep targets, then `thenLoad` if the rule sets one. Regresses a rung on a miss. | back extension, farmer's carry |
+| `subjective` | Hold the load and state the gate; a session marked **Hit** is you saying the gate was cleared. | suitcase carry, side plank, Pallof press |
 
 An exercise with `"entry": "reps"` or `"entry": "seconds"` carries no load at all, and the logger shows one box instead of two. A bodyweight set reads **BW**, not 0.
+
+A **carry** is the one place the second box is not reps. The farmer's carry sets `"repsAre": "yards"` and progresses on a `repLadder` of distances (40 → 50 → 60 → 70) with the load held at 60 / hand, because the dumbbell rack ran out before the grip did. Log it as `60 × 40`, meaning 60 lb per hand for 40 yards. The suitcase carry on Strength A has not hit that ceiling and still progresses by load.
 
 ### The chin-up, which is a phase and not a load
 
@@ -80,7 +82,7 @@ An exercise with `"entry": "reps"` or `"entry": "seconds"` carries no load at al
 
 ### The Achilles protocol
 
-`rehab.achilles` is its own daily card on Today, deliberately outside the strength days: it has to happen whether or not there was a session. It logs the load, not the reps, because that is how it progresses. The **morning reading** (better / same / worse) lives in the evening check-in, because the next morning is what judges the exercise. A `worse` reading pulls back in the order the plan sets — hike, then step-ups, then cardio off the feet — and the rehab load comes down last, since it is the thing rebuilding the tendon.
+`rehab.achilles` is its own daily card on Today, deliberately outside the strength days: it has to happen whether or not there was a session. It logs the load, not the reps, because that is how it progresses. The **morning reading** (better / same / worse) lives in the evening check-in, because the next morning is what judges the exercise. A `worse` reading pulls back in the order the plan sets — hike, then the split squat, then cardio off the feet — and the rehab load comes down last, since it is the thing rebuilding the tendon.
 
 The clinician flag on that card is a gate, not a notice: bilateral and spontaneous is the presentation that wants a look first. It comes down only by recording that a clinician has actually looked, and there is no dismiss.
 
