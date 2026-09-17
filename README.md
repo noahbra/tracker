@@ -184,3 +184,13 @@ node tests/measurements.browser.mjs
   - 8:30pm daily — "Check-in: one tap, plus the Achilles."
 
 Everything else in the build spec through Phase 3 is implemented.
+
+## Movie Ideas
+
+A second, unrelated page lives at **`movie-ideas/`** (open `<pages-url>/movie-ideas/`). It is a slot machine for film ideas: three reels — a familiar genre, a lead character that is hard to shoot in live action but easy to generate (mermaids, robots, kaiju, talking toasters), and a format or visual style — spin and land, and the combination is turned into a title and a one-sentence logline.
+
+- **Spin** with the lever or the space bar. Tap a reel's label to **hold** it across spins.
+- With an Anthropic API key saved under **Key**, each landing asks Claude (`claude-opus-5`, low effort, server-side refusal fallbacks on) for the logline; the key stays in this browser's localStorage and is sent only to `api.anthropic.com`. Without a key, or when the request fails, the page writes a house logline from templates so it never stalls.
+- **Another take** re-asks for the same combination. **Copy** puts title, logline, and combination on the clipboard. The last forty spins stay under *Earlier spins*, each with **Load reels** to put that combination back on the machine.
+
+The reel lists are plain arrays in `movie-ideas/data.js`; add entries there. Pure logic (spin, strip building, house logline, request and response shape) is in `movie-ideas/logic.js` and covered by `node tests/movie.test.mjs`. The page shares the fonts with the tracker and nothing else.

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Movie Ideas</title>
+<meta name="theme-color" content="#14150F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Movie Ideas">
+<link rel="stylesheet" href="../fonts/fonts.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <h1>Movie Ideas</h1>
+    <button id="settings-btn" class="ghost" aria-expanded="false" aria-controls="settings">Key</button>
+  </header>
+
+  <section id="settings" class="settings" hidden>
+    <label for="api-key">Anthropic API key</label>
+    <div class="row">
+      <input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+      <button id="save-key" class="solid">Save</button>
+    </div>
+    <p class="hint">Stored only in this browser. With a key, each spin asks Claude for the logline. Without one, the machine writes its own.</p>
+  </section>
+
+  <section class="machine" aria-label="Slot machine">
+    <div class="reels" id="reels"></div>
+    <div class="marker" aria-hidden="true"></div>
+  </section>
+
+  <div class="controls">
+    <button id="spin" class="lever">SPIN</button>
+    <p class="hint keyhint">Space to spin. Tap a reel label to hold it.</p>
+  </div>
+
+  <section class="idea" id="idea" aria-live="polite">
+    <p class="idea-status" id="idea-status">Pull the lever.</p>
+    <h2 class="idea-title" id="idea-title"></h2>
+    <p class="idea-line" id="idea-line"></p>
+    <div class="idea-actions" id="idea-actions" hidden>
+      <button id="reroll" class="ghost">Another take</button>
+      <button id="copy" class="ghost">Copy</button>
+    </div>
+  </section>
+
+  <section class="history" id="history-section" hidden>
+    <div class="history-head">
+      <h3>Earlier spins</h3>
+      <button id="clear-history" class="ghost">Clear</button>
+    </div>
+    <ol id="history"></ol>
+  </section>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
