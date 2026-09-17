@@ -76,6 +76,10 @@ check('article: personified kept', M.withArticle('Death personified') === 'Death
   check('request opts into server-side fallbacks', req.fallbacks === 'default');
   check('request names all three picks', req.messages[0].content.includes('Heist / ghost / mockumentary'));
   const h = M.requestHeaders('sk-test');
+  const prompt = M.buildPrompt({ genre: 'Heist', character: 'ghost', style: 'mockumentary' });
+  check('single-string prompt carries the instructions and the spin', prompt.startsWith(M.SYSTEM_PROMPT) && prompt.includes('Heist / ghost / mockumentary'));
+  const t = M.parseText('  Ghost Job\nA mockumentary in which a ghost robs a bank.  ');
+  check('parseText splits title and logline', t.title === 'Ghost Job' && t.logline === 'A mockumentary in which a ghost robs a bank.');
   check('headers allow direct browser access', h['anthropic-dangerous-direct-browser-access'] === 'true');
   check('headers carry the fallback beta', h['anthropic-beta'] === 'server-side-fallback-2026-07-01');
 }

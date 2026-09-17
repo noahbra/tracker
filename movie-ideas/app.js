@@ -29,6 +29,17 @@ function save(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { console.warn('save failed', e); }
 }
 
+// Inside the claude.ai artifact viewer the page can ask Claude on the
+// viewer's own account; resolves null everywhere else (GitHub Pages, a file).
+const sampleReady = (window.claude && typeof window.claude.use === 'function')
+  ? window.claude.use('sample').catch(() => null)
+  : Promise.resolve(null);
+let sampleFn = null;
+sampleReady.then((fn) => {
+  sampleFn = fn;
+  if (fn) { el.settingsBtn.hidden = true; el.settings.hidden = true; }
+});
+
 const state = {
   current: {},                 // { genre, character, style } on screen now
   held: load(KEYS.held, {}),   // { reelKey: true }
@@ -173,7 +184,16 @@ async function generate(seq) {
   const pick = { ...state.current };
   const key = getKey();
   let result;
-  if (key) {
+  if (sampleFn) {
+    setStatus('Asking Claude', true);
+    try {
+      const { text } = await sampleFn(M.buildPrompt(pick), { modelTier: 'quick', cache: false });
+      result = { ...M.parseText(text), source: 'claude' };
+    } catch (e) {
+      console.warn('sample failed', e);
+      result = { ...house(pick), source: 'house', note: sampleError(e) };
+    }
+  } else if (key) {
     setStatus('Asking Claude', true);
     try {
       result = await askClaude(pick, key);
@@ -206,6 +226,18 @@ async function askClaude(pick, key) {
     throw new Error(msg);
   }
   return M.parseResponse(await res.json());
+}
+
+function sampleError(e) {
+  const code = e && e.code;
+  if (code === 'not_granted' || code === 'sampling_disabled' || code === 'not_declared' || code === 'capability_disabled') {
+    sampleFn = null; // permanent for this view: stop asking
+    return 'Claude not allowed here. House logline instead.';
+  }
+  if (code === 'rate_limited') return 'Claude is rate limited. House logline instead.';
+  if (code === 'refused') return 'Claude declined this one. House logline instead.';
+  if (code === 'session_expired') return 'Signed out of Claude. House logline instead.';
+  return 'Claude unavailable. House logline instead.';
 }
 
 function shortError(e) {

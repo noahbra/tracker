@@ -157,6 +157,12 @@ Example reply:
 Roommate, Wet
 A vlog-style short in which a man documents six months of splitting rent with a mermaid who insists the bathtub is a common area, delivered with complete deadpan.`;
 
+// One-string form of the same prompt, for hosts that take a single prompt
+// (the claude.ai artifact viewer's sample capability).
+export function buildPrompt(pick) {
+  return `${SYSTEM_PROMPT}\n\nSpin: ${pick.genre} / ${pick.character} / ${pick.style}\nReply with the title line and the logline line.`;
+}
+
 export function buildRequest(pick) {
   return {
     model: MODEL,
@@ -195,6 +201,12 @@ export function parseResponse(res) {
     .map((b) => b.text)
     .join('')
     .trim();
+  return parseText(text);
+}
+
+// Splits a two-line reply into { title, logline }.
+export function parseText(text) {
+  text = (text || '').trim();
   if (!text) throw new Error('empty reply');
   const lines = text.split('\n').map((l) => l.replace(/^["'*\s]+|["'*\s]+$/g, '')).filter(Boolean);
   if (lines.length === 1) return { title: '', logline: lines[0] };

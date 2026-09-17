@@ -3,6 +3,7 @@
    winning row. */
 
 :root {
+  color-scheme: dark;
   --ground: #14150F;
   --panel: #1E2018;
   --panel2: #262921;
